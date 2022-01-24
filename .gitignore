@@ -1,0 +1,14 @@
+# environment
+.env
+
+# forge
+cache/
+out/
+
+# node
+node_modules/
+
+# misc
+yarn-error.log
+.DS_Store
+.vscode/

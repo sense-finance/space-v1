@@ -1,0 +1,34 @@
+name: Forge Tests
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  run-ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: recursive
+          token: ${{ secrets.ACCESS_TOKEN }}
+
+      - uses: actions/setup-node@v2
+        with:
+          node-version: 14
+          cache: yarn
+
+      - name: Install dev dependencies
+        run: yarn install
+
+      - name: Run lint check
+        run: yarn lint:check
+
+      - name: Install Foundry
+        uses: onbjerg/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: Run forge tests
+        run: forge test

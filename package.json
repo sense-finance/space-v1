@@ -1,0 +1,29 @@
+{
+    "name": "@sense-finance/v1-space",
+    "version": "0.4.2-beta",
+    "description": "Sense V1 Space Contract",
+    "license": "UNLICENSED",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/sense-finance/space-v1.git"
+    },
+    "files": [
+        "src/**/*",
+        "!src/tests/*"
+    ],
+    "scripts": {
+        "build": "forge build",
+        "test": "forge test -vvv --force",
+        "lint": "solhint --config ./.solhint.json 'src/**/*.sol' --fix",
+        "lint:check": "solhint --config ./.solhint.json 'src/**/*.sol'",
+        "fix": "prettier --ignore-path .gitignore --write src/**/*.sol && yarn lint",
+        "gas-snapshot": "forge snapshot --force",
+        "gas-snapshot:diff": "forge snapshot --force --diff"
+    },
+    "devDependencies": {
+        "dotenv": "^10.0.0",
+        "prettier": "^2.3.2",
+        "prettier-plugin-solidity": "^1.0.0-beta.17",
+        "solhint": "^3.3.6"
+    }
+}
