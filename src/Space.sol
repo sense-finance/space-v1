@@ -192,7 +192,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
             delete reqAmountsIn[_zeroi];
 
             // Update target reserves for caching
-            reserves[_targeti] += reqAmountsIn[_targeti];
+            reserves = reqAmountsIn;
         
             // Cache new reserves, post join
             _cacheReserves(reserves);

@@ -430,7 +430,7 @@ contract SpaceTest is Test {
         }
 
         // No additional lp shares extracted until somebody joins or exits
-        assertEq(space.balanceOf(address(protocolFeesCollector)), 1003147415248878304);
+        assertEq(space.balanceOf(address(protocolFeesCollector)), 1573707624439152);
         jim.exit(space.balanceOf(address(jim)));
 
         assertEq(space.balanceOf(address(protocolFeesCollector)), 7502641632334072);
