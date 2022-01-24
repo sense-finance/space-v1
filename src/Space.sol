@@ -191,6 +191,9 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
             // This starts this pool off as synthetic Underlying only, as the yieldspace invariant expects
             delete reqAmountsIn[_zeroi];
 
+            // Update target reserves for caching
+            reserves = reqAmountsIn;
+        
             // Cache new reserves, post join
             _cacheReserves(reserves);
 
