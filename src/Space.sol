@@ -165,8 +165,8 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
         _upscaleArray(reserves);
         _upscaleArray(reqAmountsIn);
 
+        (uint8 _zeroi, uint8 _targeti) = getIndices();
         if (totalSupply() == 0) {
-            (uint8 _zeroi, uint8 _targeti) = getIndices();
             uint256 initScale = AdapterLike(adapter).scale();
 
             // Convert target balance into Underlying
@@ -191,6 +191,9 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
             // This starts this pool off as synthetic Underlying only, as the yieldspace invariant expects
             delete reqAmountsIn[_zeroi];
 
+            // Update target reserves for caching
+            reserves[_targeti] += reqAmountsIn[_targeti];
+        
             // Cache new reserves, post join
             _cacheReserves(reserves);
 
@@ -210,8 +213,8 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
             _mintPoolTokens(recipient, bptToMint);
 
             // Update reserves for caching
-            reserves[0] += amountsIn[0];
-            reserves[1] += amountsIn[1];
+            reserves[_zeroi] += amountsIn[_zeroi];
+            reserves[_targeti] += amountsIn[_targeti];
 
             // Cache new reserves, post join
             _cacheReserves(reserves);
