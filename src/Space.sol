@@ -4,6 +4,7 @@ pragma experimental ABIEncoderV2;
 
 // External references
 import { FixedPoint } from "@balancer-labs/v2-solidity-utils/contracts/math/FixedPoint.sol";
+import { Math } from "@balancer-labs/v2-solidity-utils/contracts/math/Math.sol";
 import { BalancerPoolToken } from "@balancer-labs/v2-pool-utils/contracts/BalancerPoolToken.sol";
 import { ERC20 } from "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/ERC20.sol";
 
