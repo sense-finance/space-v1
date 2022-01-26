@@ -129,8 +129,8 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
         _token1 = tokens[1];
         _protocolFeesCollector = address(vault.getProtocolFeesCollector());
 
-        _scalingFactorZero = 10**(18 - ERC20(zero).decimals());
-        _scalingFactorTarget = 10**(18 - ERC20(target).decimals());
+        _scalingFactorZero = 10**(FixedPoint.sub(18, ERC20(zero).decimals()));
+        _scalingFactorTarget = 10**(FixedPoint.sub(18, ERC20(target).decimals()));
 
         // Set Yieldspace config
         g1 = _g1; // fees are baked into factors `g1` & `g2`,
@@ -179,7 +179,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
             _mintPoolTokens(address(0), MINIMUM_BPT);
 
             // Mint the recipient BPT comensurate with the value of their join in Underlying
-            _mintPoolTokens(recipient, underlyingIn - MINIMUM_BPT);
+            _mintPoolTokens(recipient, underlyingIn.sub(MINIMUM_BPT));
 
             // Amounts entering the Pool, so we round up
             _downscaleUpArray(reqAmountsIn);
@@ -291,7 +291,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
 
         if (zeroIn) {
             // Add LP supply to Zero reserves, as suggested by the yieldspace paper
-            reservesTokenIn += totalSupply();
+            reservesTokenIn = reservesTokenIn.add(totalSupply());
 
             // Backdate the Target reserves and convert to Underlying, as if it were still t0 (initialization)
             reservesTokenOut = reservesTokenOut.mulDown(_initScale);
@@ -300,7 +300,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
             reservesTokenIn = reservesTokenIn.mulDown(_initScale);
 
             // Add LP supply to Zero reserves, as suggested by the yieldspace paper
-            reservesTokenOut += totalSupply();
+            reservesTokenOut = reservesTokenOut.add(totalSupply());
         }
 
         if (request.kind == IVault.SwapKind.GIVEN_IN) {
@@ -357,7 +357,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
         if (zeroReserves == 0) {
             uint256 reqTargetIn = reqAmountsIn[_targeti];
             // Mint LP shares according to the relative amount of Target being offered
-            uint256 bptToMint = (totalSupply() * reqTargetIn) / targetReserves;
+            uint256 bptToMint = totalSupply().mulDown(reqTargetIn).divDown(targetReserves);
 
             // Pull the entire offered Target
             amountsIn[_targeti] = reqTargetIn;
@@ -367,20 +367,20 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
             // Disambiguate requested amounts wrt token type
             (uint256 reqZerosIn, uint256 reqTargetIn) = (reqAmountsIn[_zeroi], reqAmountsIn[_targeti]);
             // Caclulate the percentage of the pool we'd get if we pulled all of the requested Target in
-            uint256 bptToMintTarget = (totalSupply() * reqTargetIn) / targetReserves;
+            uint256 bptToMintTarget = totalSupply().mulDown(reqTargetIn).divDown(targetReserves);
 
             // Caclulate the percentage of the pool we'd get if we pulled all of the requested Zeros in
-            uint256 bptToMintZeros = (totalSupply() * reqZerosIn) / zeroReserves;
+            uint256 bptToMintZeros = totalSupply().mulDown(reqZerosIn).divDown(zeroReserves);
 
             // Determine which amountIn is our limiting factor
             if (bptToMintTarget < bptToMintZeros) {
-                amountsIn[_zeroi] = (zeroReserves * reqTargetIn) / targetReserves;
+                amountsIn[_zeroi] = zeroReserves.mulDown(reqTargetIn).divDown(targetReserves);
                 amountsIn[_targeti] = reqTargetIn;
 
                 return (bptToMintTarget, amountsIn);
             } else {
                 amountsIn[_zeroi] = reqZerosIn;
-                amountsIn[_targeti] = (targetReserves * reqZerosIn) / zeroReserves;
+                amountsIn[_targeti] = targetReserves.mulDown(reqZerosIn).divDown(zeroReserves);
 
                 return (bptToMintZeros, amountsIn);
             }
@@ -419,12 +419,12 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
         uint256 y1 = reservesTokenOut.powUp(a);
 
         // y2 = (yPre - amountOut) ^ a; x2 = (xPre + amountIn) ^ a
-        uint256 xOrY2 = (givenIn ? reservesTokenIn + amountDelta : reservesTokenOut - amountDelta).powDown(a);
+        uint256 xOrY2 = (givenIn ? reservesTokenIn + amountDelta : reservesTokenOut.sub(amountDelta)).powDown(a);
 
         // x1 + y1 = xOrY2 + xOrYPost ^ a
         // -> xOrYPost ^ a = x1 + y1 - x2
         // -> xOrYPost = (x1 + y1 - xOrY2) ^ (1 / a)
-        uint256 xOrYPost = (x1 + y1 - xOrY2).powUp(FixedPoint.ONE.divDown(a));
+        uint256 xOrYPost = (x1.add(y1).sub(xOrY2)).powUp(FixedPoint.ONE.divDown(a));
         _require(!givenIn || reservesTokenOut > xOrYPost, Errors.SWAP_TOO_SMALL);
 
         // amountOut = yPre - yPost; amountIn = xPost - xPre
@@ -440,15 +440,15 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
         uint256 a = ts.mulDown(ttm).complement();
 
         // Invariant growth from time only
-        uint256 timeOnlyInvariant = _lastToken0Reserve.powDown(a) + _lastToken1Reserve.powDown(a);
+        uint256 timeOnlyInvariant = _lastToken0Reserve.powDown(a).add(_lastToken1Reserve.powDown(a));
         (uint8 _zeroi, uint8 _targeti) = getIndices();
 
         // `x` & `y` for the actual invariant, with growth from time and fees
-        uint256 x = (reserves[_zeroi] + totalSupply()).powDown(a);
+        uint256 x = (reserves[_zeroi].add(totalSupply())).powDown(a);
         uint256 y = reserves[_targeti].mulDown(_initScale).powDown(a);
 
         return
-            (x + y).divDown(timeOnlyInvariant).sub(FixedPoint.ONE).mulDown(totalSupply()).mulDown(
+            (x.add(y)).divDown(timeOnlyInvariant).sub(FixedPoint.ONE).mulDown(totalSupply()).mulDown(
                 protocolSwapFeePercentage
             );
     }
@@ -457,12 +457,11 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
     function _cacheReserves(uint256[] memory reserves) internal {
         (uint8 _zeroi, uint8 _targeti) = getIndices();
 
-        uint256 reserveZero = reserves[_zeroi] + totalSupply();
+        uint256 reserveZero = reserves[_zeroi].add(totalSupply());
         // Calculate the backdated Target reserve
         uint256 reserveUnderlying = reserves[_targeti].mulDown(_initScale);
 
         // Caclulate the invariant and store everything
-        // TODO
         _lastToken0Reserve = _zeroi == 0 ? reserveZero : reserveUnderlying;
         _lastToken1Reserve = _zeroi == 0 ? reserveUnderlying : reserveZero;
     }
@@ -494,7 +493,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
 
     /// @notice Scale number type to 18 decimals if need be
     function _upscale(uint256 amount, uint256 scalingFactor) internal pure returns (uint256) {
-        return amount * scalingFactor;
+        return Math.mul(amount, scalingFactor);
     }
 
     /// @notice Ensure number type is back in its base decimal if need be, rounding down
@@ -504,14 +503,14 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
 
     /// @notice Ensure number type is back in its base decimal if need be, rounding up
     function _downscaleUp(uint256 amount, uint256 scalingFactor) internal pure returns (uint256) {
-        return 1 + (amount - 1) / scalingFactor;
+        return 1 + (amount.sub(1)) / scalingFactor;
     }
 
     /// @notice Upscale array of token amounts to 18 decimals if need be
     function _upscaleArray(uint256[] memory amounts) internal view {
         (uint8 _zeroi, uint8 _targeti) = getIndices();
-        amounts[_zeroi] = amounts[_zeroi] * _scalingFactor(true);
-        amounts[_targeti] = amounts[_targeti] * _scalingFactor(false);
+        amounts[_zeroi] = Math.mul(amounts[_zeroi], _scalingFactor(true));
+        amounts[_targeti] = Math.mul(amounts[_targeti], _scalingFactor(false));
     }
 
     /// @notice Downscale array of token amounts to 18 decimals if need be, rounding down
