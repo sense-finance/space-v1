@@ -4,7 +4,7 @@ Implementation of [Sense Space](https://medium.com/sensefinance/introducing-sens
 
 ## Development
 
-Install Foundry [Foundry: Forge](https://github.com/gakonst/foundry) using the instructions in the README in the linked repo if you don't already have it.
+Install Foundry [Foundry: Forge](https://github.com/gakonst/foundry) using the instructions in the linked repo.
 
 ### Test
 
@@ -23,7 +23,7 @@ forge test -vvv
 
 ```bash
 # Get node dependencies
-yarn
+yarn install # or npm install
 
 # Run linter
 yarn lint
