@@ -358,7 +358,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
         if (zeroReserves == 0) {
             uint256 reqTargetIn = reqAmountsIn[_targeti];
             // Mint LP shares according to the relative amount of Target being offered
-            uint256 bptToMint = totalSupply().mulDown(reqTargetIn).divDown(targetReserves);
+            uint256 bptToMint = Math.divDown(Math.mul(totalSupply(), reqTargetIn), targetReserves);
 
             // Pull the entire offered Target
             amountsIn[_targeti] = reqTargetIn;
@@ -368,20 +368,20 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
             // Disambiguate requested amounts wrt token type
             (uint256 reqZerosIn, uint256 reqTargetIn) = (reqAmountsIn[_zeroi], reqAmountsIn[_targeti]);
             // Caclulate the percentage of the pool we'd get if we pulled all of the requested Target in
-            uint256 bptToMintTarget = totalSupply().mulDown(reqTargetIn).divDown(targetReserves);
+            uint256 bptToMintTarget = Math.divDown(Math.mul(totalSupply(), reqTargetIn), targetReserves);
 
             // Caclulate the percentage of the pool we'd get if we pulled all of the requested Zeros in
             uint256 bptToMintZeros = totalSupply().mulDown(reqZerosIn).divDown(zeroReserves);
 
             // Determine which amountIn is our limiting factor
             if (bptToMintTarget < bptToMintZeros) {
-                amountsIn[_zeroi] = zeroReserves.mulDown(reqTargetIn).divDown(targetReserves);
+                amountsIn[_zeroi] = Math.divDown(Math.mul(zeroReserves, reqTargetIn), targetReserves);
                 amountsIn[_targeti] = reqTargetIn;
 
                 return (bptToMintTarget, amountsIn);
             } else {
                 amountsIn[_zeroi] = reqZerosIn;
-                amountsIn[_targeti] = targetReserves.mulDown(reqZerosIn).divDown(zeroReserves);
+                amountsIn[_targeti] = Math.divDown(Math.mul(targetReserves, reqZerosIn), zeroReserves);
 
                 return (bptToMintZeros, amountsIn);
             }
@@ -504,7 +504,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
 
     /// @notice Ensure number type is back in its base decimal if need be, rounding up
     function _downscaleUp(uint256 amount, uint256 scalingFactor) internal pure returns (uint256) {
-        return 1 + (amount.sub(1)) / scalingFactor;
+        return Math.divDown(Math.add(1, amount.sub(1)), scalingFactor);
     }
 
     /// @notice Upscale array of token amounts to 18 decimals if need be
