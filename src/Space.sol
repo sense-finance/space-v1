@@ -214,6 +214,9 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
             _mintPoolTokens(recipient, bptToMint);
 
             // Update reserves for caching
+            //
+            // No risk of overflow as this function will only succeed if the user actually has `amountsIn` and
+            // the max token subpply for a well-behaved token is bounded by `uint256 totalSupply`
             reserves[0] += amountsIn[0];
             reserves[1] += amountsIn[1];
 
@@ -262,10 +265,9 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
         // `sender` pays for the liquidity
         _burnPoolTokens(sender, bptAmountIn);
 
-        // TODO gas efficiency
         // Update reserves for caching
-        reserves[0] -= amountsOut[0];
-        reserves[1] -= amountsOut[1];
+        reserves[0] = reserves[0].sub(amountsOut[0]);
+        reserves[1] = reserves[1].sub(amountsOut[1]);
 
         // Cache new invariant and reserves, post exit
         _cacheReserves(reserves);
@@ -420,6 +422,9 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
         uint256 y1 = reservesTokenOut.powUp(a);
 
         // y2 = (yPre - amountOut) ^ a; x2 = (xPre + amountIn) ^ a
+        //
+        // No overflow risk in the addition as Balancer will only allow an `amountDelta` if the user actually has it,
+        // and the max token supply for well-behaved tokens is bounded by the uint256 type
         uint256 xOrY2 = (givenIn ? reservesTokenIn + amountDelta : reservesTokenOut.sub(amountDelta)).powDown(a);
 
         // x1 + y1 = xOrY2 + xOrYPost ^ a
