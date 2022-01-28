@@ -358,7 +358,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
         if (zeroReserves == 0) {
             uint256 reqTargetIn = reqAmountsIn[_targeti];
             // Mint LP shares according to the relative amount of Target being offered
-            uint256 bptToMint = totalSupply().mulDown(reqTargetIn).divDown(targetReserves);
+            uint256 bptToMint = BasicMath.mul(totalSupply(), reqTargetIn) / targetReserves;
 
             // Pull the entire offered Target
             amountsIn[_targeti] = reqTargetIn;
@@ -368,20 +368,20 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
             // Disambiguate requested amounts wrt token type
             (uint256 reqZerosIn, uint256 reqTargetIn) = (reqAmountsIn[_zeroi], reqAmountsIn[_targeti]);
             // Caclulate the percentage of the pool we'd get if we pulled all of the requested Target in
-            uint256 bptToMintTarget = totalSupply().mulDown(reqTargetIn).divDown(targetReserves);
+            uint256 bptToMintTarget = BasicMath.mul(totalSupply(), reqTargetIn) / targetReserves;
 
             // Caclulate the percentage of the pool we'd get if we pulled all of the requested Zeros in
-            uint256 bptToMintZeros = totalSupply().mulDown(reqZerosIn).divDown(zeroReserves);
+            uint256 bptToMintZeros = BasicMath.mul(totalSupply(), reqZerosIn) / zeroReserves;
 
             // Determine which amountIn is our limiting factor
             if (bptToMintTarget < bptToMintZeros) {
-                amountsIn[_zeroi] = zeroReserves.mulDown(reqTargetIn).divDown(targetReserves);
+                amountsIn[_zeroi] = BasicMath.mul(zeroReserves, reqTargetIn) / targetReserves;
                 amountsIn[_targeti] = reqTargetIn;
 
                 return (bptToMintTarget, amountsIn);
             } else {
                 amountsIn[_zeroi] = reqZerosIn;
-                amountsIn[_targeti] = targetReserves.mulDown(reqZerosIn).divDown(zeroReserves);
+                amountsIn[_targeti] = BasicMath.mul(targetReserves, reqZerosIn) / zeroReserves;
 
                 return (bptToMintZeros, amountsIn);
             }
