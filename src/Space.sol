@@ -423,8 +423,8 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
 
         // y2 = (yPre - amountOut) ^ a; x2 = (xPre + amountIn) ^ a
         //
-        // No overflow risk in the addition as Balancer will only allow an `amountDelta` if the user actually has it,
-        // and the max token supply for well-behaved tokens is bounded by the uint256 type
+        // No overflow risk in the addition as Balancer will only allow an `amountDelta` for tokens coming in
+        // if the user actually has it, and the max token supply for well-behaved tokens is bounded by the uint256 type
         uint256 xOrY2 = (givenIn ? reservesTokenIn + amountDelta : reservesTokenOut.sub(amountDelta)).powDown(a);
 
         // x1 + y1 = xOrY2 + xOrYPost ^ a
