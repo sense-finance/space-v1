@@ -216,7 +216,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
             // Update reserves for caching
             //
             // No risk of overflow as this function will only succeed if the user actually has `amountsIn` and
-            // the max token subpply for a well-behaved token is bounded by `uint256 totalSupply`
+            // the max token supply for a well-behaved token is bounded by `uint256 totalSupply`
             reserves[0] += amountsIn[0];
             reserves[1] += amountsIn[1];
 
