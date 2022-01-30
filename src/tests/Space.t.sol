@@ -288,13 +288,13 @@ contract SpaceTest is Test {
         try sid.swapIn(true, 1e12) {
             fail();
         } catch Error(string memory error) {
-            assertEq(error, "BAL#006");
+            assertEq(error, "BAL#001");
         }
 
         try sid.swapOut(false, 1e12) {
             fail();
         } catch Error(string memory error) {
-            assertEq(error, "BAL#006");
+            assertEq(error, "BAL#001");
         }
 
         // The first swap only took Target from Jim, so he'll have fewer Target but more Zeros
