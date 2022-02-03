@@ -11,7 +11,7 @@ import { IMinimalSwapInfoPool } from "@balancer-labs/v2-vault/contracts/interfac
 import { IVault } from "@balancer-labs/v2-vault/contracts/interfaces/IVault.sol";
 import { IERC20 } from "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/IERC20.sol";
 
-import { Errors, _require } from "./Errors.sol";
+import { Errors, _require } from "@balancer-labs/v2-solidity-utils/contracts/helpers/BalancerErrors.sol";
 
 interface AdapterLike {
     function scale() external returns (uint256);
@@ -35,7 +35,6 @@ interface AdapterLike {
                 .                      ;
                 :                  - --+- -
                 !           .          !
-
 */
 
 /// @notice A Yieldspace implementation extended such that LPs can deposit
@@ -60,7 +59,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
     address public immutable adapter;
 
     /// @notice Maturity timestamp for associated Series
-    uint256 public immutable maturity;
+    uint48 public immutable maturity;
 
     /// @notice Zero token index (there are only two tokens in this pool, so `targeti` is always just the complement)
     uint8 public immutable zeroi;
@@ -105,7 +104,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
     constructor(
         IVault vault,
         address _adapter,
-        uint256 _maturity,
+        uint48 _maturity,
         address zero,
         uint256 _ts,
         uint256 _g1,
@@ -119,7 +118,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
         // Ensure that the array of tokens is correctly ordered
         uint8 _zeroi = zero < target ? 0 : 1;
         tokens[_zeroi] = IERC20(zero);
-        tokens[1 - _zeroi] = IERC20(target);
+        tokens[_zeroi == 0 ? 1 : 0] = IERC20(target);
         vault.registerTokens(poolId, tokens, new address[](2));
 
         // Set Balancer-specific pool config
@@ -157,7 +156,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
         // Space does not have multiple join types like other Balancer pools,
         // instead, its `joinPool` always behaves like `EXACT_TOKENS_IN_FOR_BPT_OUT`
 
-        _require(maturity >= block.timestamp, Errors.POOL_PAST_MATURITY);
+        require(maturity >= block.timestamp, "POOL_PAST_MATURITY");
 
         uint256[] memory reqAmountsIn = abi.decode(userData, (uint256[]));
 
@@ -341,7 +340,6 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
     // given the ratio of the reserves, and assuming we don't make any swaps
     function _tokensInForBptOut(uint256[] memory reqAmountsIn, uint256[] memory reserves)
         internal
-        view
         returns (uint256, uint256[] memory)
     {
         // Disambiguate reserves wrt token type
@@ -393,7 +391,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
         uint256 amountDelta,
         uint256 reservesTokenIn,
         uint256 reservesTokenOut
-    ) internal view returns (uint256) {
+    ) internal returns (uint256) {
         // xPre = token in reserves pre swap
         // yPre = token out reserves pre swap
 
@@ -422,7 +420,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
         // -> xOrYPost ^ a = x1 + y1 - x2
         // -> xOrYPost = (x1 + y1 - xOrY2) ^ (1 / a)
         uint256 xOrYPost = (x1 + y1 - xOrY2).powUp(FixedPoint.ONE.divDown(a));
-        _require(!givenIn || reservesTokenOut > xOrYPost, Errors.SWAP_TOO_SMALL);
+        require(!givenIn || reservesTokenOut > xOrYPost, "SWAP_TOO_SMALL");
 
         // amountOut = yPre - yPost; amountIn = xPost - xPre
         return givenIn ? reservesTokenOut.sub(xOrYPost) : xOrYPost.sub(reservesTokenIn);
@@ -432,7 +430,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
 
     /// @notice Determine the growth in the invariant due to swap fees only
     /// @dev This can't be a view function b/c `Adapter.scale` is not a view function
-    function _bptFeeDue(uint256[] memory reserves, uint256 protocolSwapFeePercentage) internal view returns (uint256) {
+    function _bptFeeDue(uint256[] memory reserves, uint256 protocolSwapFeePercentage) internal returns (uint256) {
         uint256 ttm = maturity > block.timestamp ? uint256(maturity - block.timestamp) * FixedPoint.ONE : 0;
         uint256 a = ts.mulDown(ttm).complement();
 
@@ -495,12 +493,12 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
     }
 
     /// @notice Ensure number type is back in its base decimal if need be, rounding down
-    function _downscaleDown(uint256 amount, uint256 scalingFactor) internal pure returns (uint256) {
+    function _downscaleDown(uint256 amount, uint256 scalingFactor) internal returns (uint256) {
         return amount / scalingFactor;
     }
 
     /// @notice Ensure number type is back in its base decimal if need be, rounding up
-    function _downscaleUp(uint256 amount, uint256 scalingFactor) internal pure returns (uint256) {
+    function _downscaleUp(uint256 amount, uint256 scalingFactor) internal returns (uint256) {
         return 1 + (amount - 1) / scalingFactor;
     }
 

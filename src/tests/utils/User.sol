@@ -106,8 +106,8 @@ contract User {
                     recipient: payable(address(this)),
                     toInternalBalance: false
                 }),
-                0, // `limit` – no min expectations of return around tokens out testing GIVEN_IN
-                type(uint256).max // `deadline` – no deadline
+                0, // `limit` no min expectations of return around tokens out testing GIVEN_IN
+                type(uint256).max // `deadline` no deadline
             );
     }
 
@@ -132,8 +132,8 @@ contract User {
                     recipient: payable(address(this)),
                     toInternalBalance: false
                 }),
-                type(uint256).max, // `limit` – no max expectations around tokens out for testing GIVEN_OUT
-                type(uint256).max // `deadline` – no deadline
+                type(uint256).max, // `limit` no max expectations around tokens out for testing GIVEN_OUT
+                type(uint256).max // `deadline` no deadline
             );
     }
 }

@@ -15,7 +15,6 @@ import { FixedPoint } from "@balancer-labs/v2-solidity-utils/contracts/math/Fixe
 // Internal references
 import { SpaceFactory } from "../SpaceFactory.sol";
 import { Space } from "../Space.sol";
-import { Errors } from "../Errors.sol";
 
 contract SpaceFactoryTest is DSTest {
     using FixedPoint for uint256;
@@ -27,9 +26,9 @@ contract SpaceFactoryTest is DSTest {
     SpaceFactory internal spaceFactory;
     MockDividerSpace internal divider;
     MockAdapterSpace internal adapter;
-    uint256 internal maturity1;
-    uint256 internal maturity2;
-    uint256 internal maturity3;
+    uint48 internal maturity1;
+    uint48 internal maturity2;
+    uint48 internal maturity3;
 
     uint256 internal ts;
     uint256 internal g1;
@@ -68,7 +67,7 @@ contract SpaceFactoryTest is DSTest {
         try spaceFactory.create(address(adapter), maturity1) {
             fail();
         } catch Error(string memory error) {
-            assertEq(error, Errors.POOL_ALREADY_EXISTS);
+            assertEq(error, "POOL_ALREADY_EXISTS");
         }
     }
 
@@ -96,14 +95,14 @@ contract SpaceFactoryTest is DSTest {
         try spaceFactory.setParams(ts, g1, g2) {
             fail();
         } catch Error(string memory error) {
-            assertEq(error, Errors.INVALID_G1);
+            assertEq(error, "INVALID_G1");
         }
         g1 = (FixedPoint.ONE * 900).divDown(FixedPoint.ONE * 1000);
         g2 = (FixedPoint.ONE * 900).divDown(FixedPoint.ONE * 1000);
         try spaceFactory.setParams(ts, g1, g2) {
             fail();
         } catch Error(string memory error) {
-            assertEq(error, Errors.INVALID_G2);
+            assertEq(error, "INVALID_G2");
         }
     }
 }
