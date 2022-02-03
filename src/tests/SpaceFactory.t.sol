@@ -3,34 +3,32 @@ pragma solidity ^0.7.0;
 pragma experimental ABIEncoderV2;
 
 // Testing utils
-import {DSTest} from "@sense-finance/v1-core/src/tests/test-helpers/DSTest.sol";
-import {MockDividerSpace, MockAdapterSpace, ERC20Mintable} from "./utils/Mocks.sol";
-import {VM} from "./utils/VM.sol";
+import { DSTest } from "@sense-finance/v1-core/src/tests/test-helpers/DSTest.sol";
+import { MockDividerSpace, MockAdapterSpace, ERC20Mintable } from "./utils/Mocks.sol";
+import { VM } from "./utils/VM.sol";
 
 // External references
-import {Vault, IVault, IWETH} from "@balancer-labs/v2-vault/contracts/Vault.sol";
-import {Authorizer} from "@balancer-labs/v2-vault/contracts/Authorizer.sol";
-import {FixedPoint} from "@balancer-labs/v2-solidity-utils/contracts/math/FixedPoint.sol";
+import { Vault, IVault, IWETH } from "@balancer-labs/v2-vault/contracts/Vault.sol";
+import { Authorizer } from "@balancer-labs/v2-vault/contracts/Authorizer.sol";
+import { FixedPoint } from "@balancer-labs/v2-solidity-utils/contracts/math/FixedPoint.sol";
 
 // Internal references
-import {SpaceFactory} from "../SpaceFactory.sol";
-import {Space} from "../Space.sol";
-import {Errors} from "../Errors.sol";
+import { SpaceFactory } from "../SpaceFactory.sol";
+import { Space } from "../Space.sol";
 
 contract SpaceFactoryTest is DSTest {
     using FixedPoint for uint256;
 
     VM internal constant vm = VM(HEVM_ADDRESS);
-    IWETH internal constant weth =
-        IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
+    IWETH internal constant weth = IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
 
     Vault internal vault;
     SpaceFactory internal spaceFactory;
     MockDividerSpace internal divider;
     MockAdapterSpace internal adapter;
-    uint256 internal maturity1;
-    uint256 internal maturity2;
-    uint256 internal maturity3;
+    uint48 internal maturity1;
+    uint48 internal maturity2;
+    uint48 internal maturity3;
 
     uint256 internal ts;
     uint256 internal g1;
@@ -69,7 +67,7 @@ contract SpaceFactoryTest is DSTest {
         try spaceFactory.create(address(adapter), maturity1) {
             fail();
         } catch Error(string memory error) {
-            assertEq(error, Errors.POOL_ALREADY_EXISTS);
+            assertEq(error, "POOL_ALREADY_EXISTS");
         }
     }
 
@@ -97,14 +95,14 @@ contract SpaceFactoryTest is DSTest {
         try spaceFactory.setParams(ts, g1, g2) {
             fail();
         } catch Error(string memory error) {
-            assertEq(error, Errors.INVALID_G1);
+            assertEq(error, "INVALID_G1");
         }
         g1 = (FixedPoint.ONE * 900).divDown(FixedPoint.ONE * 1000);
         g2 = (FixedPoint.ONE * 900).divDown(FixedPoint.ONE * 1000);
         try spaceFactory.setParams(ts, g1, g2) {
             fail();
         } catch Error(string memory error) {
-            assertEq(error, Errors.INVALID_G2);
+            assertEq(error, "INVALID_G2");
         }
     }
 }
