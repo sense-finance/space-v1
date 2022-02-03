@@ -67,14 +67,23 @@ contract SpaceFactory is Trust {
     }
 
     /// @notice Deploys a new `Space` contract
-    function create(address _adapter, uint256 _maturity) external returns (address) {
-        _require(pools[_adapter][_maturity] == address(0), Errors.POOL_ALREADY_DEPLOYED);
+    function create(address adapter, uint256 maturity) external returns (address pool) {
+        _require(pools[adapter][maturity] == address(0), Errors.POOL_ALREADY_DEPLOYED);
 
-        address zero = DividerLike(divider).zero(_adapter, uint256(_maturity));
-        address pool = address(new Space(vault, _adapter, _maturity, zero, ts, g1, g2));
+        pool = address(new Space(
+            vault,
+            adapter,
+            maturity,
+            DividerLike(divider).zero(
+                adapter,
+                maturity
+            ),
+            ts,
+            g1,
+            g2
+        ));
 
-        pools[_adapter][_maturity] = pool;
-        return pool;
+        pools[adapter][maturity] = pool;
     }
 
     function setParams(

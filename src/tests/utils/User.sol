@@ -45,7 +45,7 @@ contract User {
         maxAmountsIn[0] = type(uint256).max;
         maxAmountsIn[1] = type(uint256).max;
 
-        (uint8 zeroi, uint8 targeti) = space.getIndices();
+        (uint256 zeroi, uint256 targeti) = space.getIndices();
         uint256[] memory amountsIn = new uint256[](2);
         amountsIn[zeroi] = reqZeroIn;
         amountsIn[targeti] = reqTargetIn;
