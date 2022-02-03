@@ -64,7 +64,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
     uint256 public immutable maturity;
 
     /// @notice Zero token index (there are only two tokens in this pool, so `targeti` is always just the complement)
-    uint8 public immutable zeroi;
+    uint256 public immutable zeroi;
 
     /// @notice Yieldspace config, passed in from the Space Factory
     uint256 public immutable ts;
@@ -118,7 +118,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
         IERC20[] memory tokens = new IERC20[](2);
 
         // Ensure that the array of tokens is correctly ordered
-        uint8 _zeroi = zero < target ? 0 : 1;
+        uint256 _zeroi = zero < target ? 0 : 1;
         tokens[_zeroi] = IERC20(zero);
         tokens[1 - _zeroi] = IERC20(target);
         vault.registerTokens(poolId, tokens, new address[](2));
@@ -167,7 +167,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
         _upscaleArray(reqAmountsIn);
 
         if (totalSupply() == 0) {
-            (uint8 _zeroi, uint8 _targeti) = getIndices();
+            (uint256 _zeroi, uint256 _targeti) = getIndices();
             uint256 initScale = AdapterLike(adapter).scale();
 
             // Convert target balance into Underlying
@@ -250,7 +250,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
             _mintPoolTokens(_protocolFeesCollector, _bptFeeDue(reserves, protocolSwapFeePercentage));
         }
 
-        // Determine what percentage of the pool the BPT being passed in is
+        // Determine what percentage of the pool the BPT being passed in represents
         uint256 bptAmountIn = abi.decode(userData, (uint256));
         uint256 pctPool = bptAmountIn.divDown(totalSupply());
 
@@ -351,7 +351,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
         returns (uint256, uint256[] memory)
     {
         // Disambiguate reserves wrt token type
-        (uint8 _zeroi, uint8 _targeti) = getIndices();
+        (uint256 _zeroi, uint256 _targeti) = getIndices();
         (uint256 zeroReserves, uint256 targetReserves) = (reserves[_zeroi], reserves[_targeti]);
 
         uint256[] memory amountsIn = new uint256[](2);
@@ -447,7 +447,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
 
         // Invariant growth from time only
         uint256 timeOnlyInvariant = _lastToken0Reserve.powDown(a).add(_lastToken1Reserve.powDown(a));
-        (uint8 _zeroi, uint8 _targeti) = getIndices();
+        (uint256 _zeroi, uint256 _targeti) = getIndices();
 
         // `x` & `y` for the actual invariant, with growth from time and fees
         uint256 x = (reserves[_zeroi].add(totalSupply())).powDown(a);
@@ -461,7 +461,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
 
     /// @notice Cache the given reserve amounts
     function _cacheReserves(uint256[] memory reserves) internal {
-        (uint8 _zeroi, uint8 _targeti) = getIndices();
+        (uint256 _zeroi, uint256 _targeti) = getIndices();
 
         uint256 reserveZero = reserves[_zeroi].add(totalSupply());
         // Calculate the backdated Target reserve
@@ -475,9 +475,9 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
     /* ========== PUBLIC GETTERS ========== */
 
     /// @notice Get token indices for Zero and Target
-    function getIndices() public view returns (uint8 _zeroi, uint8 _targeti) {
+    function getIndices() public view returns (uint256 _zeroi, uint256 _targeti) {
         _zeroi = zeroi;
-        _targeti = _zeroi == 0 ? 1 : 0;
+        _targeti = 1 - _zeroi;
     }
 
     /* ========== BALANCER REQUIRED INTERFACE ========== */
@@ -514,20 +514,20 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
 
     /// @notice Upscale array of token amounts to 18 decimals if need be
     function _upscaleArray(uint256[] memory amounts) internal view {
-        (uint8 _zeroi, uint8 _targeti) = getIndices();
+        (uint256 _zeroi, uint256 _targeti) = getIndices();
         amounts[_zeroi] = BasicMath.mul(amounts[_zeroi], _scalingFactor(true));
         amounts[_targeti] = BasicMath.mul(amounts[_targeti], _scalingFactor(false));
     }
 
     /// @notice Downscale array of token amounts to 18 decimals if need be, rounding down
     function _downscaleDownArray(uint256[] memory amounts) internal view {
-        (uint8 _zeroi, uint8 _targeti) = getIndices();
+        (uint256 _zeroi, uint256 _targeti) = getIndices();
         amounts[_zeroi] = amounts[_zeroi] / _scalingFactor(true);
         amounts[_targeti] = amounts[_targeti] / _scalingFactor(false);
     }
     /// @notice Downscale array of token amounts to 18 decimals if need be, rounding up
     function _downscaleUpArray(uint256[] memory amounts) internal view {
-        (uint8 _zeroi, uint8 _targeti) = getIndices();
+        (uint256 _zeroi, uint256 _targeti) = getIndices();
         amounts[_zeroi] = BasicMath.divUp(amounts[_zeroi], _scalingFactor(true));
         amounts[_targeti] = BasicMath.divUp(amounts[_targeti], _scalingFactor(false));
     }
