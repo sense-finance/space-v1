@@ -7,12 +7,16 @@ import { FixedPoint } from "@balancer-labs/v2-solidity-utils/contracts/math/Fixe
 import { Math as BasicMath } from "@balancer-labs/v2-solidity-utils/contracts/math/Math.sol";
 import { BalancerPoolToken } from "@balancer-labs/v2-pool-utils/contracts/BalancerPoolToken.sol";
 import { ERC20 } from "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/ERC20.sol";
+import { LogCompression } from "@balancer-labs/v2-solidity-utils/contracts/helpers/LogCompression.sol";
+import { PoolPriceOracle } from "@balancer-labs/v2-pool-utils/contracts/oracle/PoolPriceOracle.sol";
 
 import { IMinimalSwapInfoPool } from "@balancer-labs/v2-vault/contracts/interfaces/IMinimalSwapInfoPool.sol";
 import { IVault } from "@balancer-labs/v2-vault/contracts/interfaces/IVault.sol";
 import { IERC20 } from "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/IERC20.sol";
 
 import { Errors, _require } from "./Errors.sol";
+
+import {DSTest} from "@sense-finance/v1-core/src/tests/test-helpers/DSTest.sol";
 
 interface AdapterLike {
     function scale() external returns (uint256);
@@ -47,7 +51,7 @@ interface AdapterLike {
 /// conforms to Balancer's own style, and we're using several Balancer functions that play nicer if we do.
 /// @dev Requires an external "Adapter" contract with a `scale()` function which returns the
 /// current exchange rate from Target to the Underlying asset.
-contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
+contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTest {
     using FixedPoint for uint256;
 
     /* ========== CONSTANTS ========== */
@@ -103,6 +107,68 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
     uint256 internal _lastToken0Reserve;
     uint256 internal _lastToken1Reserve;
 
+    OracleData internal oracleData;
+
+    /* ========== STRUCTURES ========== */
+
+    struct OracleData {
+        uint16 oracleIndex;
+        uint32 oracleSampleInitialTimestamp;
+        bool oracleEnabled;
+        int200 logInvariant;
+    }
+
+    event OracleEnabledChanged(bool enabled);
+
+    /// @notice Update the oracle with the current index and timestamp
+    /// @dev Must receive reserves that have already been upscaled
+    /// @dev Acts as a no-op if:
+    ///     * the oracle is not enabled 
+    ///     * a price has already been stored for this block
+    ///     * the Zero side of the pool is empty
+    function _updateOracle(
+        uint256 lastChangeBlock,
+        uint256 balance0,
+        uint256 balance1
+    ) internal {
+        emit log_named_uint("lastChangeBlock", lastChangeBlock);
+        emit log_named_uint("block.number", block.number);
+        uint256 zeroBalance = zeroi == 0 ? balance0 : balance1;
+        emit log_named_uint("zeroBalance", zeroBalance);
+        if (oracleData.oracleEnabled && block.number > lastChangeBlock && zeroBalance != 0) {
+            emit log_string("updating oracle");
+
+            // Make a small pseudo swap to determine the instantaneous price
+            uint256 targetOut = _onSwap(true, true, 1e12, balance0, balance1);
+            emit log_named_uint("targetOut", targetOut);
+
+            uint256 zeroPrice = targetOut.divDown(1e12);
+            int256 logZeroPrice = LogCompression.toLowResLog(zeroPrice);
+
+            emit log_named_uint("zeroPrice", zeroPrice);
+            emit log_named_int("logZeroPrice", logZeroPrice);
+            emit log_named_uint("oracleSampleInitialTimestamp", oracleData.oracleSampleInitialTimestamp);
+            emit log_named_uint("oracleIndex", oracleData.oracleIndex);
+
+            uint256 oracleUpdatedIndex = _processPriceData(
+                oracleData.oracleSampleInitialTimestamp,
+                oracleData.oracleIndex,
+                logZeroPrice,
+                0, // BPT price accumulator is unused
+                int256(oracleData.logInvariant)
+            );
+
+            if (oracleData.oracleIndex != oracleUpdatedIndex) {
+                oracleData.oracleSampleInitialTimestamp = uint32(block.timestamp);
+                oracleData.oracleIndex = uint16(oracleUpdatedIndex);
+            }
+        }
+    }
+
+    function _getOracleIndex() internal view override returns (uint256) {
+        return oracleData.oracleIndex;
+    }
+
     constructor(
         IVault vault,
         address _adapter,
@@ -110,7 +176,8 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
         address zero,
         uint256 _ts,
         uint256 _g1,
-        uint256 _g2
+        uint256 _g2,
+        bool _oracleEnabled
     ) BalancerPoolToken(AdapterLike(_adapter).name(), AdapterLike(_adapter).symbol()) {
         bytes32 poolId = vault.registerPool(IVault.PoolSpecialization.TWO_TOKEN);
 
@@ -142,16 +209,17 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
         zeroi = _zeroi;
         adapter = _adapter;
         maturity = _maturity;
+        oracleData.oracleEnabled = _oracleEnabled;
     }
 
     /* ========== BALANCER VAULT HOOKS ========== */
 
     function onJoinPool(
         bytes32 poolId,
-        address, /* _sender */
+        address, /* sender */
         address recipient,
         uint256[] memory reserves,
-        uint256, /* _lastChangeBlock */
+        uint256 lastChangeBlock,
         uint256 protocolSwapFeePercentage,
         bytes memory userData
     ) external override onlyVault(poolId) returns (uint256[] memory, uint256[] memory) {
@@ -200,6 +268,9 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
 
             return (reqAmountsIn, new uint256[](2));
         } else {
+            // Update oracle with upscaled reserves
+            _updateOracle(lastChangeBlock, reserves[0], reserves[1]);
+
             // Calculate fees due before updating bpt balances to determine invariant growth from just swap fees
             if (protocolSwapFeePercentage != 0) {
                 _mintPoolTokens(_protocolFeesCollector, _bptFeeDue(reserves, protocolSwapFeePercentage));
@@ -234,7 +305,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
         address sender,
         address, /* _recipient */
         uint256[] memory reserves,
-        uint256, /* _lastChangeBlock */
+        uint256 lastChangeBlock,
         uint256 protocolSwapFeePercentage,
         bytes memory userData
     ) external override onlyVault(poolId) returns (uint256[] memory, uint256[] memory) {
@@ -243,6 +314,9 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
 
         // Upscale reserves to 18 decimals
         _upscaleArray(reserves);
+
+        // Update oracle with upscaled reserves
+        _updateOracle(lastChangeBlock, reserves[0], reserves[1]);
 
         // Calculate fees due before updating bpt balances to determine invariant growth from just swap fees
         if (protocolSwapFeePercentage != 0) {
@@ -289,6 +363,13 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
         // Upscale reserves to 18 decimals
         reservesTokenIn = _upscale(reservesTokenIn, scalingFactorTokenIn);
         reservesTokenOut = _upscale(reservesTokenOut, scalingFactorTokenOut);
+
+        // Update oracle with upscaled reserves
+        _updateOracle(
+            request.lastChangeBlock, 
+            token0In ? reservesTokenIn  : reservesTokenOut, 
+            token0In ? reservesTokenOut : reservesTokenIn
+        );
 
         uint256 scale = AdapterLike(adapter).scale();
 
@@ -460,6 +541,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
     }
 
     /// @notice Cache the given reserve amounts
+    /// @dev if the oracle is set, this function will also cache the invariant and supply
     function _cacheReserves(uint256[] memory reserves) internal {
         (uint256 _zeroi, uint256 _targeti) = getIndices();
 
@@ -470,6 +552,18 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken {
         // Caclulate the invariant and store everything
         _lastToken0Reserve = _zeroi == 0 ? reserveZero : reserveUnderlying;
         _lastToken1Reserve = _zeroi == 0 ? reserveUnderlying : reserveZero;
+
+        if (oracleData.oracleEnabled) {
+            // If the oracle is enabled, cache the current invarant as well so that callers can determine liquidity
+            uint256 ttm = maturity > block.timestamp ? uint256(maturity - block.timestamp) * FixedPoint.ONE : 0;
+            uint256 a = ts.mulDown(ttm).complement();
+
+            oracleData.logInvariant = int200(
+                LogCompression.toLowResLog(
+                    _lastToken0Reserve.powDown(a).add(_lastToken1Reserve.powDown(a))
+                )
+            );
+        }
     }
 
     /* ========== PUBLIC GETTERS ========== */

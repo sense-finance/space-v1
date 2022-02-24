@@ -57,7 +57,14 @@ contract SpaceFactoryTest is DSTest {
 
         Authorizer authorizer = new Authorizer(address(this));
         vault = new Vault(authorizer, weth, 0, 0);
-        spaceFactory = new SpaceFactory(vault, address(divider), ts, g1, g2);
+        spaceFactory = new SpaceFactory(
+            vault,
+            address(divider),
+            ts,
+            g1,
+            g2,
+            true
+        );
     }
 
     function testCreatePool() public {
@@ -84,7 +91,7 @@ contract SpaceFactoryTest is DSTest {
         ts = FixedPoint.ONE.divDown(FixedPoint.ONE * 100);
         g1 = (FixedPoint.ONE * 900).divDown(FixedPoint.ONE * 1000);
         g2 = (FixedPoint.ONE * 1000).divDown(FixedPoint.ONE * 900);
-        spaceFactory.setParams(ts, g1, g2);
+        spaceFactory.setParams(ts, g1, g2, true);
         space = Space(spaceFactory.create(address(adapter), maturity2));
 
         // If params are updated, the new ones are used in the next deployment
@@ -94,14 +101,14 @@ contract SpaceFactoryTest is DSTest {
 
         // Fee params are validated
         g1 = (FixedPoint.ONE * 1000).divDown(FixedPoint.ONE * 900);
-        try spaceFactory.setParams(ts, g1, g2) {
+        try spaceFactory.setParams(ts, g1, g2, true) {
             fail();
         } catch Error(string memory error) {
             assertEq(error, Errors.INVALID_G1);
         }
         g1 = (FixedPoint.ONE * 900).divDown(FixedPoint.ONE * 1000);
         g2 = (FixedPoint.ONE * 900).divDown(FixedPoint.ONE * 1000);
-        try spaceFactory.setParams(ts, g1, g2) {
+        try spaceFactory.setParams(ts, g1, g2, true) {
             fail();
         } catch Error(string memory error) {
             assertEq(error, Errors.INVALID_G2);

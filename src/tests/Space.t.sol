@@ -14,6 +14,7 @@ import {Authentication} from "@balancer-labs/v2-solidity-utils/contracts/helpers
 import {IERC20} from "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/IERC20.sol";
 import {Authorizer} from "@balancer-labs/v2-vault/contracts/Authorizer.sol";
 import {FixedPoint} from "@balancer-labs/v2-solidity-utils/contracts/math/FixedPoint.sol";
+import {IPriceOracle} from "@balancer-labs/v2-pool-utils/contracts/interfaces/IPriceOracle.sol";
 
 // Internal references
 import {SpaceFactory} from "../SpaceFactory.sol";
@@ -92,7 +93,14 @@ contract SpaceTest is Test {
 
         authorizer = new Authorizer(address(this));
         vault = new Vault(authorizer, weth, 0, 0);
-        spaceFactory = new SpaceFactory(vault, address(divider), ts, g1, g2);
+        spaceFactory = new SpaceFactory(
+            vault,
+            address(divider),
+            ts,
+            g1,
+            g2,
+            true
+        );
 
         space = Space(spaceFactory.create(address(adapter), maturity));
 
@@ -566,7 +574,8 @@ contract SpaceTest is Test {
             address(divider),
             ts,
             g1,
-            g2
+            g2,
+            true
         );
         Space space = Space(spaceFactory.create(address(adapter), maturity));
 
@@ -633,6 +642,54 @@ contract SpaceTest is Test {
         // Receive more and more Target out as the Scale value decreases
         assertGt(targetOut3, targetOut2);
         assertGt(targetOut2, targetOut1);
+    }
+
+    function testOracle() public {
+        // TODO cant get sample if the time hasn't gone by
+        // TODO different twap periods
+        // TODO expected prices at the extrememes
+
+        vm.warp(0 hours);
+        vm.roll(0);
+
+        jim.join(0, 10e18);
+        sid.swapIn(true, 5.5e18);
+
+        // Establish the first price
+        vm.warp(1 hours);
+        vm.roll(1);
+        jim.join(10e18, 10e18);
+
+        vm.warp(2 hours);
+        vm.roll(2);
+        sid.swapIn(true);
+
+        // warp, roll
+
+        uint256 sampleTs;
+        // (, , , , , , sampleTs) = space.getSample(1023);
+
+        // Oracle starts empty
+        // assertEq(sampleTs, 0);
+
+        (, , , , , , sampleTs) = space.getSample(2);
+        (, , , , , , sampleTs) = space.getSample(1);
+
+        uint256 twapPeriod = 1 hours;
+
+        emit log_named_uint("sample", sampleTs);
+
+        IPriceOracle.OracleAverageQuery[]
+            memory queries = new IPriceOracle.OracleAverageQuery[](1);
+        queries[0] = IPriceOracle.OracleAverageQuery({
+            variable: IPriceOracle.Variable.PAIR_PRICE,
+            secs: twapPeriod,
+            ago: 0
+        });
+
+        uint256[] memory results = space.getTimeWeightedAverage(queries);
+
+        uint256 zeroPrice = results[0];
     }
 
     // testJoinExactAmount
