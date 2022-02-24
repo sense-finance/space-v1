@@ -16,8 +16,6 @@ import { IERC20 } from "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/
 
 import { Errors, _require } from "./Errors.sol";
 
-import {DSTest} from "@sense-finance/v1-core/src/tests/test-helpers/DSTest.sol";
-
 interface AdapterLike {
     function scale() external returns (uint256);
 
@@ -51,8 +49,17 @@ interface AdapterLike {
 /// conforms to Balancer's own style, and we're using several Balancer functions that play nicer if we do.
 /// @dev Requires an external "Adapter" contract with a `scale()` function which returns the
 /// current exchange rate from Target to the Underlying asset.
-contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTest {
+contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     using FixedPoint for uint256;
+
+    /* ========== STRUCTURES ========== */
+
+    struct OracleData {
+        uint16 oracleIndex;
+        uint32 oracleSampleInitialTimestamp;
+        bool oracleEnabled;
+        int200 logInvariant;
+    }
 
     /* ========== CONSTANTS ========== */
 
@@ -107,67 +114,8 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTe
     uint256 internal _lastToken0Reserve;
     uint256 internal _lastToken1Reserve;
 
+    /// @dev Oracle sample collection metadata
     OracleData internal oracleData;
-
-    /* ========== STRUCTURES ========== */
-
-    struct OracleData {
-        uint16 oracleIndex;
-        uint32 oracleSampleInitialTimestamp;
-        bool oracleEnabled;
-        int200 logInvariant;
-    }
-
-    event OracleEnabledChanged(bool enabled);
-
-    /// @notice Update the oracle with the current index and timestamp
-    /// @dev Must receive reserves that have already been upscaled
-    /// @dev Acts as a no-op if:
-    ///     * the oracle is not enabled 
-    ///     * a price has already been stored for this block
-    ///     * the Zero side of the pool is empty
-    function _updateOracle(
-        uint256 lastChangeBlock,
-        uint256 balance0,
-        uint256 balance1
-    ) internal {
-        emit log_named_uint("lastChangeBlock", lastChangeBlock);
-        emit log_named_uint("block.number", block.number);
-        uint256 zeroBalance = zeroi == 0 ? balance0 : balance1;
-        emit log_named_uint("zeroBalance", zeroBalance);
-        if (oracleData.oracleEnabled && block.number > lastChangeBlock && zeroBalance != 0) {
-            emit log_string("updating oracle");
-
-            // Make a small pseudo swap to determine the instantaneous price
-            uint256 targetOut = _onSwap(true, true, 1e12, balance0, balance1);
-            emit log_named_uint("targetOut", targetOut);
-
-            uint256 zeroPrice = targetOut.divDown(1e12);
-            int256 logZeroPrice = LogCompression.toLowResLog(zeroPrice);
-
-            emit log_named_uint("zeroPrice", zeroPrice);
-            emit log_named_int("logZeroPrice", logZeroPrice);
-            emit log_named_uint("oracleSampleInitialTimestamp", oracleData.oracleSampleInitialTimestamp);
-            emit log_named_uint("oracleIndex", oracleData.oracleIndex);
-
-            uint256 oracleUpdatedIndex = _processPriceData(
-                oracleData.oracleSampleInitialTimestamp,
-                oracleData.oracleIndex,
-                logZeroPrice,
-                0, // BPT price accumulator is unused
-                int256(oracleData.logInvariant)
-            );
-
-            if (oracleData.oracleIndex != oracleUpdatedIndex) {
-                oracleData.oracleSampleInitialTimestamp = uint32(block.timestamp);
-                oracleData.oracleIndex = uint16(oracleUpdatedIndex);
-            }
-        }
-    }
-
-    function _getOracleIndex() internal view override returns (uint256) {
-        return oracleData.oracleIndex;
-    }
 
     constructor(
         IVault vault,
@@ -269,7 +217,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTe
             return (reqAmountsIn, new uint256[](2));
         } else {
             // Update oracle with upscaled reserves
-            _updateOracle(lastChangeBlock, reserves[0], reserves[1]);
+            _updateOracle(lastChangeBlock, reserves[zeroi], reserves[1 - zeroi]);
 
             // Calculate fees due before updating bpt balances to determine invariant growth from just swap fees
             if (protocolSwapFeePercentage != 0) {
@@ -319,7 +267,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTe
         _upscaleArray(reserves);
 
         // Update oracle with upscaled reserves
-        _updateOracle(lastChangeBlock, reserves[0], reserves[1]);
+        _updateOracle(lastChangeBlock, reserves[zeroi], reserves[1 - zeroi]);
 
         // Calculate fees due before updating bpt balances to determine invariant growth from just swap fees
         if (protocolSwapFeePercentage != 0) {
@@ -356,8 +304,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTe
         uint256 reservesTokenIn,
         uint256 reservesTokenOut
     ) external override returns (uint256) {
-        bool token0In = request.tokenIn == _token0;
-        bool zeroIn = token0In ? zeroi == 0 : zeroi == 1;
+        bool zeroIn = request.tokenIn == _token0 ? zeroi == 0 : zeroi == 1;
 
         uint256 scalingFactorTokenIn = _scalingFactor(zeroIn);
         uint256 scalingFactorTokenOut = _scalingFactor(!zeroIn);
@@ -369,8 +316,8 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTe
         // Update oracle with upscaled reserves
         _updateOracle(
             request.lastChangeBlock, 
-            token0In ? reservesTokenIn  : reservesTokenOut, 
-            token0In ? reservesTokenOut : reservesTokenIn
+            zeroIn ? reservesTokenIn : reservesTokenOut, 
+            zeroIn ? reservesTokenOut: reservesTokenIn
         );
 
         uint256 scale = AdapterLike(adapter).scale();
@@ -399,8 +346,6 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTe
             // Determine the amountOut
             uint256 amountOut = _onSwap(zeroIn, true, request.amount, reservesTokenIn, reservesTokenOut);
 
-            // _require(reservesTokenIn - request.amount > reservesTokenOut - amountOut);
-
             // If Zeros are being swapped in, convert the Underlying out back to Target using present day Scale
             if (zeroIn) {
                 amountOut = amountOut.divDown(scale);
@@ -417,8 +362,6 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTe
 
             // Determine the amountIn
             uint256 amountIn = _onSwap(zeroIn, false, request.amount, reservesTokenIn, reservesTokenOut);
-
-            //  _require(reservesTokenIn - request.amount > reservesTokenOut - amountOut);
 
             // If Target is being swapped in, convert the amountIn back to Target using present day Scale
             if (!zeroIn) {
@@ -488,7 +431,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTe
         uint256 amountDelta,
         uint256 reservesTokenIn,
         uint256 reservesTokenOut
-    ) internal view returns (uint256) {
+    ) internal returns (uint256) {
         // xPre = token in reserves pre swap
         // yPre = token out reserves pre swap
 
@@ -520,7 +463,6 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTe
         // -> xOrYPost ^ a = x1 + y1 - x2
         // -> xOrYPost = (x1 + y1 - xOrY2) ^ (1 / a)
         uint256 xOrYPost = (x1.add(y1).sub(xOrY2)).powUp(FixedPoint.ONE.divDown(a));
-        // TODO: swap too small or not enough reserves, could this be done with safe math?
         _require(!givenIn || reservesTokenOut > xOrYPost, Errors.SWAP_TOO_SMALL);
 
         // amountOut = yPre - yPost; amountIn = xPost - xPre
@@ -537,11 +479,10 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTe
 
         // Invariant growth from time only
         uint256 timeOnlyInvariant = _lastToken0Reserve.powDown(a).add(_lastToken1Reserve.powDown(a));
-        (uint256 _zeroi, uint256 _targeti) = getIndices();
 
         // `x` & `y` for the actual invariant, with growth from time and fees
-        uint256 x = (reserves[_zeroi].add(totalSupply())).powDown(a);
-        uint256 y = reserves[_targeti].mulDown(_initScale).powDown(a);
+        uint256 x = reserves[zeroi].add(totalSupply()).powDown(a);
+        uint256 y = reserves[1 - zeroi].mulDown(_initScale).powDown(a);
         uint256 fullInvariant = x.add(y);
 
         if (fullInvariant <= timeOnlyInvariant) {
@@ -554,7 +495,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTe
         uint256 growth = fullInvariant.divDown(timeOnlyInvariant);
         uint256 k = protocolSwapFeePercentage.mulDown(growth.sub(FixedPoint.ONE)).divDown(growth);
 
-        return totalSupply().mulDown(k).divDown(FixedPoint.ONE.sub(k));
+        return totalSupply().mulDown(k).divDown(k.complement());
     }
 
     /// @notice Cache the given reserve amounts
@@ -589,6 +530,52 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTe
 
         _lastToken0Reserve = lastToken0Reserve;
         _lastToken1Reserve = lastToken1Reserve;
+    }
+
+    /* ========== ORACLE HELPERS ========== */
+
+    /// @notice Update the oracle with the current index and timestamp
+    /// @dev Must receive reserves that have already been upscaled
+    /// @dev Acts as a no-op if:
+    ///     * the oracle is not enabled 
+    ///     * a price has already been stored for this block
+    ///     * the Target side of the pool doesn't have enough liquidity
+    function _updateOracle(
+        uint256 lastChangeBlock,
+        uint256 balanceZero,
+        uint256 balanceTarget
+    ) internal {
+        // The Target side of the pool must have at least 0.01 units of liquidity for us to collect a price sample
+        // note: additional liquidity contraints may be enforced outside of this contract via the invariant TWAP
+        if (oracleData.oracleEnabled && block.number > lastChangeBlock && balanceTarget >= 1e16) {
+
+            // Make a small pseudo swap to determine the instantaneous spot price
+            uint256 targetOut = _onSwap(
+                true, 
+                true, 
+                1e12, 
+                balanceZero.add(totalSupply()), 
+                balanceTarget.mulDown(_initScale)
+            );
+            uint256 zeroPrice = targetOut.divDown(AdapterLike(adapter).scale()).divDown(1e12);
+
+            uint256 oracleUpdatedIndex = _processPriceData(
+                oracleData.oracleSampleInitialTimestamp,
+                oracleData.oracleIndex,
+                LogCompression.toLowResLog(zeroPrice),
+                0, // BPT price TWAP is kept at `0` as it doesn't convey meaningful information in yieldspace
+                int256(oracleData.logInvariant)
+            );
+
+            if (oracleData.oracleIndex != oracleUpdatedIndex) {
+                oracleData.oracleSampleInitialTimestamp = uint32(block.timestamp);
+                oracleData.oracleIndex = uint16(oracleUpdatedIndex);
+            }
+        }
+    }
+
+    function _getOracleIndex() internal view override returns (uint256) {
+        return oracleData.oracleIndex;
     }
 
     /* ========== PUBLIC GETTERS ========== */
@@ -633,22 +620,19 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTe
 
     /// @notice Upscale array of token amounts to 18 decimals if need be
     function _upscaleArray(uint256[] memory amounts) internal view {
-        (uint256 _zeroi, uint256 _targeti) = getIndices();
-        amounts[_zeroi] = BasicMath.mul(amounts[_zeroi], _scalingFactor(true));
-        amounts[_targeti] = BasicMath.mul(amounts[_targeti], _scalingFactor(false));
+        amounts[zeroi] = BasicMath.mul(amounts[zeroi], _scalingFactor(true));
+        amounts[1 - zeroi] = BasicMath.mul(amounts[1 - zeroi], _scalingFactor(false));
     }
 
     /// @notice Downscale array of token amounts to 18 decimals if need be, rounding down
     function _downscaleDownArray(uint256[] memory amounts) internal view {
-        (uint256 _zeroi, uint256 _targeti) = getIndices();
-        amounts[_zeroi] = amounts[_zeroi] / _scalingFactor(true);
-        amounts[_targeti] = amounts[_targeti] / _scalingFactor(false);
+        amounts[zeroi] = amounts[zeroi] / _scalingFactor(true);
+        amounts[1 - zeroi] = amounts[1 - zeroi] / _scalingFactor(false);
     }
     /// @notice Downscale array of token amounts to 18 decimals if need be, rounding up
     function _downscaleUpArray(uint256[] memory amounts) internal view {
-        (uint256 _zeroi, uint256 _targeti) = getIndices();
-        amounts[_zeroi] = BasicMath.divUp(amounts[_zeroi], _scalingFactor(true));
-        amounts[_targeti] = BasicMath.divUp(amounts[_targeti], _scalingFactor(false));
+        amounts[zeroi] = BasicMath.divUp(amounts[zeroi], _scalingFactor(true));
+        amounts[1 - zeroi] = BasicMath.divUp(amounts[1 - zeroi], _scalingFactor(false));
     }
 
     /* ========== MODIFIERS ========== */

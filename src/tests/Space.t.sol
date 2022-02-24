@@ -10,6 +10,7 @@ import {User} from "./utils/User.sol";
 
 // External references
 import {Vault, IVault, IWETH, IAuthorizer, IAsset, IProtocolFeesCollector} from "@balancer-labs/v2-vault/contracts/Vault.sol";
+import {IPoolSwapStructs} from "@balancer-labs/v2-vault/contracts/interfaces/IPoolSwapStructs.sol";
 import {Authentication} from "@balancer-labs/v2-solidity-utils/contracts/helpers/Authentication.sol";
 import {IERC20} from "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/IERC20.sol";
 import {Authorizer} from "@balancer-labs/v2-vault/contracts/Authorizer.sol";
@@ -454,10 +455,7 @@ contract SpaceTest is Test {
         authorizer.grantRole(actionId, address(this));
         protocolFeesCollector.setSwapFeePercentage(0.1e18);
 
-        assertEq(
-            space.balanceOf(address(protocolFeesCollector)),
-            0
-        );
+        assertEq(space.balanceOf(address(protocolFeesCollector)), 0);
 
         // Initialize liquidity
         jim.join(0, 10e18);
@@ -472,7 +470,9 @@ contract SpaceTest is Test {
         emit log_named_uint("target", target.balanceOf(address(ava)));
 
         // Fee controller BPT before the swap run
-        uint256 feeControllerBPTPre = space.balanceOf(address(protocolFeesCollector));
+        uint256 feeControllerBPTPre = space.balanceOf(
+            address(protocolFeesCollector)
+        );
 
         uint256 expectedFeesPaid = 0;
 
@@ -480,17 +480,20 @@ contract SpaceTest is Test {
         for (uint256 i = 0; i < NUM_WASH_TRADES; i++) {
             // 5% of yield on each trade
             uint256 targetIn = sid.swapOut(false);
-            uint256 idealYield = 1e18 - targetIn * 0.95e18 / 1e18;
-            uint256 feeOnYield = idealYield * 0.05e18 / 1e18;
+            uint256 idealYield = 1e18 - (targetIn * 0.95e18) / 1e18;
+            uint256 feeOnYield = (idealYield * 0.05e18) / 1e18;
             expectedFeesPaid += feeOnYield;
-            
+
             uint256 targetOut = sid.swapIn(true);
-            idealYield = 1e18 - targetOut * 0.95e18 / 1e18;
-            feeOnYield = idealYield * 0.05e18 / 1e18;
+            idealYield = 1e18 - (targetOut * 0.95e18) / 1e18;
+            feeOnYield = (idealYield * 0.05e18) / 1e18;
             expectedFeesPaid += feeOnYield;
         }
 
-        emit log_named_uint("expectedFeesPaid", expectedFeesPaid * 0.1e18 / 1e18);
+        emit log_named_uint(
+            "expectedFeesPaid",
+            (expectedFeesPaid * 0.1e18) / 1e18
+        );
         return;
 
         // No additional BPT shares are minted for the controller until somebody joins or exits
@@ -500,10 +503,15 @@ contract SpaceTest is Test {
         );
         ava.exit(space.balanceOf(address(ava)));
 
-        uint256 feeControllerNewBPT = space.balanceOf(address(protocolFeesCollector)) - feeControllerBPTPre;
+        uint256 feeControllerNewBPT = space.balanceOf(
+            address(protocolFeesCollector)
+        ) - feeControllerBPTPre;
 
         // Transfer fee controller's new BPT to sam, then redeem it
-        vm.prank(address(protocolFeesCollector), address(protocolFeesCollector));
+        vm.prank(
+            address(protocolFeesCollector),
+            address(protocolFeesCollector)
+        );
         space.transfer(address(sam), feeControllerNewBPT);
         sam.exit(space.balanceOf(address(sam)));
 
@@ -708,40 +716,37 @@ contract SpaceTest is Test {
     }
 
     function testOracle() public {
-        // TODO cant get sample if the time hasn't gone by
-        // TODO different twap periods
-        // TODO expected prices at the extrememes
-
         vm.warp(0 hours);
         vm.roll(0);
 
         jim.join(0, 10e18);
-        sid.swapIn(true, 5.5e18);
+        sid.swapIn(true, 2e18);
+
+        uint256 sampleTs;
+        (, , , , , , sampleTs) = space.getSample(1);
+        // Uninitialized samples are identified by a zero timestamp
+        assertEq(sampleTs, 0);
 
         // Establish the first price
         vm.warp(1 hours);
         vm.roll(1);
-        jim.join(10e18, 10e18);
+        jim.join(1e18, 1e18);
+
+        (, , , , , , sampleTs) = space.getSample(1);
+        assertEq(sampleTs, 1 hours);
 
         vm.warp(2 hours);
         vm.roll(2);
-        sid.swapIn(true);
-
-        // warp, roll
-
-        uint256 sampleTs;
-        // (, , , , , , sampleTs) = space.getSample(1023);
-
-        // Oracle starts empty
-        // assertEq(sampleTs, 0);
-
+        // Tiny join so that the reserves when the TWAP is deteremined are similar to what they'll be
+        // when we determine the instantaneous spot price
+        jim.join(1, 1);
         (, , , , , , sampleTs) = space.getSample(2);
-        (, , , , , , sampleTs) = space.getSample(1);
+        assertEq(sampleTs, 2 hours);
+
+        uint256 targetOut = jim.swapIn(true, 1e12);
+        uint256 zeroInstSpotPrice = targetOut.divDown(1e12);
 
         uint256 twapPeriod = 1 hours;
-
-        emit log_named_uint("sample", sampleTs);
-
         IPriceOracle.OracleAverageQuery[]
             memory queries = new IPriceOracle.OracleAverageQuery[](1);
         queries[0] = IPriceOracle.OracleAverageQuery({
@@ -749,10 +754,58 @@ contract SpaceTest is Test {
             secs: twapPeriod,
             ago: 0
         });
-
         uint256[] memory results = space.getTimeWeightedAverage(queries);
-
         uint256 zeroPrice = results[0];
+
+        assertClose(zeroPrice, zeroInstSpotPrice, 1e14);
+
+        vm.warp(20 hours);
+        vm.roll(20);
+        jim.join(1, 1);
+        queries[0] = IPriceOracle.OracleAverageQuery({
+            variable: IPriceOracle.Variable.PAIR_PRICE,
+            secs: twapPeriod,
+            ago: 0
+        });
+        results = space.getTimeWeightedAverage(queries);
+        zeroPrice = results[0];
+
+        targetOut = jim.swapIn(true, 1e12);
+        zeroInstSpotPrice = targetOut.divDown(1e12);
+
+        assertClose(zeroPrice, zeroInstSpotPrice, 1e14);
+
+        twapPeriod = 22 hours;
+        queries[0] = IPriceOracle.OracleAverageQuery({
+            variable: IPriceOracle.Variable.PAIR_PRICE,
+            secs: twapPeriod,
+            ago: 0
+        });
+
+        // Can't twap beyond what has been recorded
+        try space.getTimeWeightedAverage(queries) {
+            fail();
+        } catch Error(string memory error) {
+            assertEq(error, "BAL#312");
+        }
+
+        for (uint256 i = 3; i < 1027; i++) {
+            vm.warp(i * 1 hours);
+            vm.roll(i);
+            jim.join(1, 1);
+        }
+
+        (, , , , , , sampleTs) = space.getSample(1023);
+        assertEq(sampleTs, 1023 hours);
+
+        for (uint256 i = 1027; i < 2050; i++) {
+            vm.warp(i * 1 hours);
+            vm.roll(i);
+            jim.join(1, 1);
+        }
+
+        (, , , , , , sampleTs) = space.getSample(1023);
+        assertEq(sampleTs, 2047 hours);
     }
 
     // testJoinExactAmount
