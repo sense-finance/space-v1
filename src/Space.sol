@@ -431,7 +431,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         uint256 amountDelta,
         uint256 reservesTokenIn,
         uint256 reservesTokenOut
-    ) internal returns (uint256) {
+    ) internal view returns (uint256) {
         // xPre = token in reserves pre swap
         // yPre = token out reserves pre swap
 
@@ -492,6 +492,8 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             return 0;
         }
 
+        // Equation inspired by `WeightedMath.sol` in PR#1111 in the Balancer monorepo,
+        // which also needs to calculate fees based on growth in the invariant
         uint256 growth = fullInvariant.divDown(timeOnlyInvariant);
         uint256 k = protocolSwapFeePercentage.mulDown(growth.sub(FixedPoint.ONE)).divDown(growth);
 
