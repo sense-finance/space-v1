@@ -201,7 +201,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTe
         _scalingFactorTarget = 10**(BasicMath.sub(uint256(18), ERC20(target).decimals()));
 
         // Set Yieldspace config
-        g1 = _g1; // fees are baked into factors `g1` & `g2`,
+        g1 = _g1; // Fees are baked into factors `g1` & `g2`,
         g2 = _g2; // see the "Fees" section of the yieldspace paper
         ts = _ts;
 
@@ -260,7 +260,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTe
             // This starts this pool off as synthetic Underlying only, as the yieldspace invariant expects
             delete reqAmountsIn[_zeroi];
 
-            // Update target reserves for caching
+            // Cache starting Target reserves
             reserves = reqAmountsIn;
         
             // Cache new reserves, post join
@@ -273,6 +273,9 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTe
 
             // Calculate fees due before updating bpt balances to determine invariant growth from just swap fees
             if (protocolSwapFeePercentage != 0) {
+                // This doesn't break the YS virtual reserves efficiency trick because, even though we're minting new BPT, 
+                // the BPT is still getting denser faster than it's getting diluted, 
+                // meaning that it'll never fall below invariant #23 in the YS paper
                 _mintPoolTokens(_protocolFeesCollector, _bptFeeDue(reserves, protocolSwapFeePercentage));
             }
 
@@ -320,7 +323,6 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTe
 
         // Calculate fees due before updating bpt balances to determine invariant growth from just swap fees
         if (protocolSwapFeePercentage != 0) {
-            // Balancer fealty
             _mintPoolTokens(_protocolFeesCollector, _bptFeeDue(reserves, protocolSwapFeePercentage));
         }
 
@@ -396,6 +398,9 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTe
 
             // Determine the amountOut
             uint256 amountOut = _onSwap(zeroIn, true, request.amount, reservesTokenIn, reservesTokenOut);
+
+            // _require(reservesTokenIn - request.amount > reservesTokenOut - amountOut);
+
             // If Zeros are being swapped in, convert the Underlying out back to Target using present day Scale
             if (zeroIn) {
                 amountOut = amountOut.divDown(scale);
@@ -412,6 +417,9 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTe
 
             // Determine the amountIn
             uint256 amountIn = _onSwap(zeroIn, false, request.amount, reservesTokenIn, reservesTokenOut);
+
+            //  _require(reservesTokenIn - request.amount > reservesTokenOut - amountOut);
+
             // If Target is being swapped in, convert the amountIn back to Target using present day Scale
             if (!zeroIn) {
                 amountIn = amountIn.divDown(scale);
@@ -512,6 +520,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTe
         // -> xOrYPost ^ a = x1 + y1 - x2
         // -> xOrYPost = (x1 + y1 - xOrY2) ^ (1 / a)
         uint256 xOrYPost = (x1.add(y1).sub(xOrY2)).powUp(FixedPoint.ONE.divDown(a));
+        // TODO: swap too small or not enough reserves, could this be done with safe math?
         _require(!givenIn || reservesTokenOut > xOrYPost, Errors.SWAP_TOO_SMALL);
 
         // amountOut = yPre - yPost; amountIn = xPost - xPre
@@ -533,25 +542,38 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTe
         // `x` & `y` for the actual invariant, with growth from time and fees
         uint256 x = (reserves[_zeroi].add(totalSupply())).powDown(a);
         uint256 y = reserves[_targeti].mulDown(_initScale).powDown(a);
+        uint256 fullInvariant = x.add(y);
 
-        return
-            (x.add(y)).divDown(timeOnlyInvariant).sub(FixedPoint.ONE).mulDown(totalSupply()).mulDown(
-                protocolSwapFeePercentage
-            );
+        if (fullInvariant <= timeOnlyInvariant) {
+            // Similar to the invariant check in balancer-v2-monorepo/**/WeightedMath.sol,
+            // this shouldn't happen outside of rounding errors, yet we keep this so that those
+            // potential errors don't lead to a locked state
+            return 0;
+        }
+
+        uint256 growth = fullInvariant.divDown(timeOnlyInvariant);
+        uint256 k = protocolSwapFeePercentage.mulDown(growth.sub(FixedPoint.ONE)).divDown(growth);
+
+        return totalSupply().mulDown(k).divDown(FixedPoint.ONE.sub(k));
     }
 
     /// @notice Cache the given reserve amounts
     /// @dev if the oracle is set, this function will also cache the invariant and supply
     function _cacheReserves(uint256[] memory reserves) internal {
-        (uint256 _zeroi, uint256 _targeti) = getIndices();
-
-        uint256 reserveZero = reserves[_zeroi].add(totalSupply());
+        uint256 reserveZero = reserves[zeroi].add(totalSupply());
         // Calculate the backdated Target reserve
-        uint256 reserveUnderlying = reserves[_targeti].mulDown(_initScale);
+        uint256 reserveUnderlying = reserves[1 - zeroi].mulDown(_initScale);
 
         // Caclulate the invariant and store everything
-        _lastToken0Reserve = _zeroi == 0 ? reserveZero : reserveUnderlying;
-        _lastToken1Reserve = _zeroi == 0 ? reserveUnderlying : reserveZero;
+        uint256 lastToken0Reserve;
+        uint256 lastToken1Reserve;
+        if (zeroi == 0) {
+            lastToken0Reserve = reserveZero;
+            lastToken1Reserve = reserveUnderlying;
+        } else {
+            lastToken0Reserve = reserveUnderlying;
+            lastToken1Reserve = reserveZero;
+        }
 
         if (oracleData.oracleEnabled) {
             // If the oracle is enabled, cache the current invarant as well so that callers can determine liquidity
@@ -560,10 +582,13 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTe
 
             oracleData.logInvariant = int200(
                 LogCompression.toLowResLog(
-                    _lastToken0Reserve.powDown(a).add(_lastToken1Reserve.powDown(a))
+                    lastToken0Reserve.powDown(a).add(lastToken1Reserve.powDown(a))
                 )
             );
         }
+
+        _lastToken0Reserve = lastToken0Reserve;
+        _lastToken1Reserve = lastToken1Reserve;
     }
 
     /* ========== PUBLIC GETTERS ========== */
@@ -571,7 +596,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTe
     /// @notice Get token indices for Zero and Target
     function getIndices() public view returns (uint256 _zeroi, uint256 _targeti) {
         _zeroi = zeroi;
-        _targeti = 1 - _zeroi;
+        _targeti = 1 - zeroi;
     }
 
     /* ========== BALANCER REQUIRED INTERFACE ========== */

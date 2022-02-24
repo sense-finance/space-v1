@@ -69,6 +69,7 @@ contract SpaceTest is Test {
     User internal jim;
     User internal ava;
     User internal sid;
+    User internal sam;
 
     uint256 internal ts;
     uint256 internal g1;
@@ -129,6 +130,8 @@ contract SpaceTest is Test {
         sid = new User(vault, space, zero, target);
         zero.mint(address(sid), INTIAL_USER_BALANCE);
         target.mint(address(sid), INTIAL_USER_BALANCE);
+
+        sam = new User(vault, space, zero, target);
     }
 
     function testJoinOnce() public {
@@ -451,26 +454,86 @@ contract SpaceTest is Test {
         authorizer.grantRole(actionId, address(this));
         protocolFeesCollector.setSwapFeePercentage(0.1e18);
 
+        assertEq(
+            space.balanceOf(address(protocolFeesCollector)),
+            0
+        );
+
+        // Initialize liquidity
         jim.join(0, 10e18);
-        sid.swapIn(true, 5.5e18);
+        jim.swapIn(true, 5.5e18);
         jim.join(10e18, 10e18);
 
-        for (uint256 i = 0; i < 6; i++) {
-            ava.swapOut(false);
-            ava.swapIn(true);
+        ava.join(10e18, 10e18);
+
+        uint256 NUM_WASH_TRADES = 6;
+
+        emit log_named_uint("zero", zero.balanceOf(address(ava)));
+        emit log_named_uint("target", target.balanceOf(address(ava)));
+
+        // Fee controller BPT before the swap run
+        uint256 feeControllerBPTPre = space.balanceOf(address(protocolFeesCollector));
+
+        uint256 expectedFeesPaid = 0;
+
+        // Make some swaps
+        for (uint256 i = 0; i < NUM_WASH_TRADES; i++) {
+            // 5% of yield on each trade
+            uint256 targetIn = sid.swapOut(false);
+            uint256 idealYield = 1e18 - targetIn * 0.95e18 / 1e18;
+            uint256 feeOnYield = idealYield * 0.05e18 / 1e18;
+            expectedFeesPaid += feeOnYield;
+            
+            uint256 targetOut = sid.swapIn(true);
+            idealYield = 1e18 - targetOut * 0.95e18 / 1e18;
+            feeOnYield = idealYield * 0.05e18 / 1e18;
+            expectedFeesPaid += feeOnYield;
         }
 
-        // No additional lp shares extracted until somebody joins or exits
-        assertEq(
-            space.balanceOf(address(protocolFeesCollector)),
-            1573707624439152
-        );
-        jim.exit(space.balanceOf(address(jim)));
+        emit log_named_uint("expectedFeesPaid", expectedFeesPaid * 0.1e18 / 1e18);
+        return;
 
+        // No additional BPT shares are minted for the controller until somebody joins or exits
         assertEq(
             space.balanceOf(address(protocolFeesCollector)),
-            7502641632334072
+            feeControllerBPTPre
         );
+        ava.exit(space.balanceOf(address(ava)));
+
+        uint256 feeControllerNewBPT = space.balanceOf(address(protocolFeesCollector)) - feeControllerBPTPre;
+
+        // Transfer fee controller's new BPT to sam, then redeem it
+        vm.prank(address(protocolFeesCollector), address(protocolFeesCollector));
+        space.transfer(address(sam), feeControllerNewBPT);
+        sam.exit(space.balanceOf(address(sam)));
+
+        emit log_named_uint("sam zeros", zero.balanceOf(address(sam)));
+        emit log_named_uint("sam target", target.balanceOf(address(sam)));
+
+        // assertEq(zero.balanceOf(address(sam)), 0);
+        // assertEq(target.balanceOf(address(sam)), 0);
+
+        // emit log_named_uint("zero", zero.balanceOf(address(ava)));
+        // emit log_named_uint("target", target.balanceOf(address(ava)));
+
+        // emit log_named_uint("zero", zero.balanceOf(address(sid)));
+        // emit log_named_uint("target", target.balanceOf(address(sid)));
+
+        // Sid has his entire iniital Zero balance back
+        assertEq(zero.balanceOf(address(sid)), 100e18);
+        // assertEq(target.balanceOf(address(sid), 100e18);
+
+        // assertEq(
+        //     space.balanceOf(address(protocolFeesCollector)),
+        //     0
+        // );
+
+        // 7502641632334072
+        // 7488891101757368
+
+        // jim loss due to fees
+        // protocol controller gain due to fees (lines up with % of yield traded)
+        // fee controller should own x% of liquidity (based on x% of fees)
 
         // TODO fees don't eat into non-trade invariant growth
         // TODO fees are correctly proportioned to the fee set in the vault
