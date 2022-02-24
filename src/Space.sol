@@ -553,9 +553,9 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
 
             // Make a small pseudo swap to determine the instantaneous spot price
             uint256 targetOut = _onSwap(
-                true, 
-                true, 
-                1e12, 
+                true, // zero in
+                true, // given in
+                1e12, // 1e12 zeros in
                 balanceZero.add(totalSupply()), 
                 balanceTarget.mulDown(_initScale)
             );
