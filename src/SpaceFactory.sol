@@ -17,8 +17,8 @@ interface DividerLike {
     )
         external
         returns (
-            address, /* zero */
-            address, /* claim */
+            address, /* principal token */
+            address, /* yield token */
             address, /* sponsor */
             uint256, /* reward */
             uint256, /* iscale */
@@ -28,9 +28,9 @@ interface DividerLike {
             uint128 /* tilt */
         );
 
-    function zero(address adapter, uint256 maturity) external returns (address);
+    function pt(address adapter, uint256 maturity) external returns (address);
 
-    function claim(address adapter, uint256 maturity) external returns (address);
+    function yt(address adapter, uint256 maturity) external returns (address);
 }
 
 contract SpaceFactory is Trust {
@@ -74,7 +74,7 @@ contract SpaceFactory is Trust {
             vault,
             adapter,
             maturity,
-            DividerLike(divider).zero(
+            DividerLike(divider).pt(
                 adapter,
                 maturity
             ),
@@ -91,9 +91,9 @@ contract SpaceFactory is Trust {
         uint256 _g1,
         uint256 _g2
     ) public requiresTrust {
-        // g1 is for swapping Targets to Zeros and should discount the effective interest
+        // g1 is for swapping Targets to PT and should discount the effective interest
         _require(_g1 <= FixedPoint.ONE, Errors.INVALID_G1);
-        // g2 is for swapping Zeros to Target and should mark the effective interest up
+        // g2 is for swapping PT to Target and should mark the effective interest up
         _require(_g2 >= FixedPoint.ONE, Errors.INVALID_G2);
 
         ts = _ts;

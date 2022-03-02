@@ -38,6 +38,6 @@ yarn fix
 ```bash
 # Deploy a SpaceFactory
 forge create SpaceFactory --constructor-args \
-    <balancer_vault> <sense_divider> <timeshift> <fee_zero_in> <fee_zero_out> \
+    <balancer_vault> <sense_divider> <timeshift> <fee_principal_in> <fee_principal_out> \
     --rpc-url <url> --private-key <key>
 ```
