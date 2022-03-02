@@ -552,14 +552,15 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         if (oracleData.oracleEnabled && block.number > lastChangeBlock && balanceTarget >= 1e16) {
 
             // Make a small pseudo swap to determine the instantaneous spot price
-            uint256 targetOut = _onSwap(
+            uint256 underlyingOut = _onSwap(
                 true, // zero in
                 true, // given in
                 1e12, // 1e12 zeros in
                 balanceZero.add(totalSupply()), 
                 balanceTarget.mulDown(_initScale)
             );
-            uint256 zeroPrice = targetOut.divDown(AdapterLike(adapter).scale()).divDown(1e12);
+            // Cacluate the price of one Zero in Target terms
+            uint256 zeroPrice = underlyingOut.divDown(AdapterLike(adapter).scale()).divDown(1e12);
 
             uint256 oracleUpdatedIndex = _processPriceData(
                 oracleData.oracleSampleInitialTimestamp,
