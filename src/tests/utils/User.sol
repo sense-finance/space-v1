@@ -13,20 +13,20 @@ import { Space } from "../../Space.sol";
 contract User {
     Space space;
     IVault vault;
-    ERC20Mintable zero;
+    ERC20Mintable pt;
     ERC20Mintable target;
 
     constructor(
         IVault _vault,
         Space _space,
-        ERC20Mintable _zero,
+        ERC20Mintable _principal,
         ERC20Mintable _target
     ) public {
         vault = _vault;
         space = _space;
-        zero = _zero;
+        pt = _principal;
         target = _target;
-        zero.approve(address(vault), type(uint256).max);
+        pt.approve(address(vault), type(uint256).max);
         target.approve(address(vault), type(uint256).max);
     }
 
@@ -34,7 +34,7 @@ contract User {
         join(1e18, 1e18);
     }
 
-    function join(uint256 reqZeroIn, uint256 reqTargetIn) public {
+    function join(uint256 reqPrincipalIn, uint256 reqTargetIn) public {
         (IERC20[] memory _assets, , ) = vault.getPoolTokens(space.getPoolId());
 
         IAsset[] memory assets = new IAsset[](2);
@@ -45,9 +45,9 @@ contract User {
         maxAmountsIn[0] = type(uint256).max;
         maxAmountsIn[1] = type(uint256).max;
 
-        (uint256 zeroi, uint256 targeti) = space.getIndices();
+        (uint256 pti, uint256 targeti) = space.getIndices();
         uint256[] memory amountsIn = new uint256[](2);
-        amountsIn[zeroi] = reqZeroIn;
+        amountsIn[pti] = reqPrincipalIn;
         amountsIn[targeti] = reqTargetIn;
 
         vault.joinPool(
@@ -70,7 +70,7 @@ contract User {
         assets[0] = IAsset(address(_assets[0]));
         assets[1] = IAsset(address(_assets[1]));
 
-        uint256[] memory minAmountsOut = new uint256[](2); // implicit zeros
+        uint256[] memory minAmountsOut = new uint256[](2); // implicit principals
 
         vault.exitPool(
             space.getPoolId(),
@@ -85,18 +85,18 @@ contract User {
         );
     }
 
-    function swapIn(bool zeroIn) public returns (uint256) {
-        return swapIn(zeroIn, 1e18);
+    function swapIn(bool principalIn) public returns (uint256) {
+        return swapIn(principalIn, 1e18);
     }
 
-    function swapIn(bool zeroIn, uint256 amountIn) public returns (uint256) {
+    function swapIn(bool principalIn, uint256 amountIn) public returns (uint256) {
         return
             vault.swap(
                 IVault.SingleSwap({
                     poolId: space.getPoolId(),
                     kind: IVault.SwapKind.GIVEN_IN,
-                    assetIn: IAsset(zeroIn ? address(zero) : address(target)),
-                    assetOut: IAsset(zeroIn ? address(target) : address(zero)),
+                    assetIn: IAsset(principalIn ? address(pt) : address(target)),
+                    assetOut: IAsset(principalIn ? address(target) : address(pt)),
                     amount: amountIn,
                     userData: "0x"
                 }),
@@ -111,18 +111,18 @@ contract User {
             );
     }
 
-    function swapOut(bool zeroIn) public returns (uint256) {
-        return swapOut(zeroIn, 1e18);
+    function swapOut(bool principalIn) public returns (uint256) {
+        return swapOut(principalIn, 1e18);
     }
 
-    function swapOut(bool zeroIn, uint256 amountOut) public returns (uint256) {
+    function swapOut(bool principalIn, uint256 amountOut) public returns (uint256) {
         return
             vault.swap(
                 IVault.SingleSwap({
                     poolId: space.getPoolId(),
                     kind: IVault.SwapKind.GIVEN_OUT,
-                    assetIn: IAsset(zeroIn ? address(zero) : address(target)),
-                    assetOut: IAsset(zeroIn ? address(target) : address(zero)),
+                    assetIn: IAsset(principalIn ? address(pt) : address(target)),
+                    assetOut: IAsset(principalIn ? address(target) : address(pt)),
                     amount: amountOut,
                     userData: "0x"
                 }),

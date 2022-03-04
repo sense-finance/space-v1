@@ -61,7 +61,7 @@ contract SpaceTest is Test {
     MockDividerSpace internal divider;
     MockAdapterSpace internal adapter;
     uint256 internal maturity;
-    ERC20Mintable internal zero;
+    ERC20Mintable internal pt;
     ERC20Mintable internal target;
     Authorizer internal authorizer;
 
@@ -85,7 +85,7 @@ contract SpaceTest is Test {
         ts = FixedPoint.ONE.divDown(FixedPoint.ONE * 31622400); // 1 / 1 year in seconds
         // 0.95 for selling underlying
         g1 = (FixedPoint.ONE * 950).divDown(FixedPoint.ONE * 1000);
-        // 1 / 0.95 for selling Zeros
+        // 1 / 0.95 for selling PT
         g2 = (FixedPoint.ONE * 1000).divDown(FixedPoint.ONE * 950);
 
         maturity = 15811200; // 6 months in seconds
@@ -96,30 +96,30 @@ contract SpaceTest is Test {
 
         space = Space(spaceFactory.create(address(adapter), maturity));
 
-        (address _zero, , , , , , , , ) = MockDividerSpace(divider).series(
+        (address _pt, , , , , , , , ) = MockDividerSpace(divider).series(
             address(adapter),
             maturity
         );
-        zero = ERC20Mintable(_zero);
+        pt = ERC20Mintable(_pt);
         target = ERC20Mintable(adapter.target());
 
-        // Mint this address Zeros and Target
+        // Mint this address PT and Target tokens
         // Max approve the balancer vault to move this addresses tokens
-        zero.mint(address(this), INTIAL_USER_BALANCE);
+        pt.mint(address(this), INTIAL_USER_BALANCE);
         target.mint(address(this), INTIAL_USER_BALANCE);
         target.approve(address(vault), type(uint256).max);
-        zero.approve(address(vault), type(uint256).max);
+        pt.approve(address(vault), type(uint256).max);
 
-        jim = new User(vault, space, zero, target);
-        zero.mint(address(jim), INTIAL_USER_BALANCE);
+        jim = new User(vault, space, pt, target);
+        pt.mint(address(jim), INTIAL_USER_BALANCE);
         target.mint(address(jim), INTIAL_USER_BALANCE);
 
-        ava = new User(vault, space, zero, target);
-        zero.mint(address(ava), INTIAL_USER_BALANCE);
+        ava = new User(vault, space, pt, target);
+        pt.mint(address(ava), INTIAL_USER_BALANCE);
         target.mint(address(ava), INTIAL_USER_BALANCE);
 
-        sid = new User(vault, space, zero, target);
-        zero.mint(address(sid), INTIAL_USER_BALANCE);
+        sid = new User(vault, space, pt, target);
+        pt.mint(address(sid), INTIAL_USER_BALANCE);
         target.mint(address(sid), INTIAL_USER_BALANCE);
     }
 
@@ -134,8 +134,8 @@ contract SpaceTest is Test {
         // deposited (inital scale is 1e18, so it's one-to-one)
         assertClose(space.balanceOf(address(jim)), 1e18, 1e6);
 
-        // but it did not move any Zeros
-        assertEq(zero.balanceOf(address(jim)), 100e18);
+        // but it did not move any PT
+        assertEq(pt.balanceOf(address(jim)), 100e18);
     }
 
     function testJoinMultiNoSwaps() public {
@@ -151,38 +151,38 @@ contract SpaceTest is Test {
         // and it minted jim's account more BPT tokens
         assertClose(space.balanceOf(address(jim)), 2e18, 1e6);
 
-        // but it still did not move any Zeros
-        assertEq(zero.balanceOf(address(jim)), 100e18);
+        // but it still did not move any PT
+        assertEq(pt.balanceOf(address(jim)), 100e18);
     }
 
     function testSimpleSwapIn() public {
         // Join once (first join is always Target-only)
         jim.join();
 
-        // Can't swap any Target in b/c there aren't ever any Zeros to get out after the first join
+        // Can't swap any Target in b/c there aren't ever any PT to get out after the first join
         try jim.swapIn(false, 1) {
             fail();
         } catch Error(string memory error) {
             assertEq(error, Errors.SWAP_TOO_SMALL);
         }
 
-        // Can successfully swap Zeros in
+        // Can successfully swap PT in
         uint256 targetOt = jim.swapIn(true);
         // Fixed amount in, variable amount out
         uint256 expectedTargetOut = 646139118808653602;
 
-        // Swapped one Zero in
-        assertEq(zero.balanceOf(address(jim)), 99e18);
+        // Swapped one PT in
+        assertEq(pt.balanceOf(address(jim)), 99e18);
         // Received less than one Target
         assertEq(targetOt, expectedTargetOut);
 
         (, uint256[] memory balances, ) = vault.getPoolTokens(
             space.getPoolId()
         );
-        (uint256 zeroi, uint256 targeti) = space.getIndices();
+        (uint256 pti, uint256 targeti) = space.getIndices();
 
         // Pool balances reflect the user's balances
-        assertEq(balances[zeroi], 1e18);
+        assertEq(balances[pti], 1e18);
         assertEq(balances[targeti], 1e18 - expectedTargetOut);
 
         // Can not swap a full Target in
@@ -193,20 +193,20 @@ contract SpaceTest is Test {
         }
 
         // Can successfully swap a partial Target in
-        uint256 zeroOut = jim.swapIn(false, 0.5e18);
-        uint256 expectedZeroOut = 804788983856768174;
+        uint256 ptOut = jim.swapIn(false, 0.5e18);
+        uint256 expectedPTOut = 804788983856768174;
 
         assertEq(
             target.balanceOf(address(jim)),
             99e18 + expectedTargetOut - 0.5e18
         );
-        assertEq(zeroOut, expectedZeroOut);
+        assertEq(ptOut, expectedPTOut);
     }
 
     function testSimpleSwapsOut() public {
         jim.join();
 
-        // Can't swap any Zeros out b/c there aren't any Zeros to get out after the first join
+        // Can't swap any PT out b/c there aren't any PT to get out after the first join
         try jim.swapOut(false, 1) {
             fail();
         } catch Error(string memory error) {
@@ -214,13 +214,13 @@ contract SpaceTest is Test {
         }
 
         // Can successfully swap Target out
-        uint256 zerosIn = jim.swapOut(true, 0.1e18);
+        uint256 ptsIn = jim.swapOut(true, 0.1e18);
         // Fixed amount out, variable amount in
-        uint256 expectedZerosIn = 105559160849472541; // around 0.10556
+        uint256 expectedPTIn = 105559160849472541; // around 0.10556
 
         // Received 0.1 Target
         assertEq(target.balanceOf(address(jim)), 99e18 + 0.1e18);
-        assertEq(zerosIn, expectedZerosIn);
+        assertEq(ptsIn, expectedPTIn);
     }
 
     function testExitOnce() public {
@@ -229,8 +229,8 @@ contract SpaceTest is Test {
         jim.exit(space.balanceOf(address(jim)));
 
         // For the pool's first exit –--
-        // It moved Zeros back to jim's account
-        assertEq(zero.balanceOf(address(jim)), 100e18);
+        // It moved PT back to jim's account
+        assertEq(pt.balanceOf(address(jim)), 100e18);
         // And it took all of jim's account's BPT back
         assertEq(space.balanceOf(address(jim)), 0);
         // It moved almost all Target back to this account (locked MINIMUM_BPT permanently)
@@ -247,8 +247,8 @@ contract SpaceTest is Test {
         jim.exit(space.balanceOf(address(jim)));
 
         // For the pool's first exit –--
-        // It moved Zeros back to jim's account (less rounding losses)
-        assertClose(zero.balanceOf(address(jim)), 100e18, 1e6);
+        // It moved PT back to jim's account (less rounding losses)
+        assertClose(pt.balanceOf(address(jim)), 100e18, 1e6);
         // And it took all of jim's account's BPT back
         assertEq(space.balanceOf(address(jim)), 0);
         // It moved almost all Target back to this account (locked MINIMUM_BPT permanently)
@@ -262,19 +262,19 @@ contract SpaceTest is Test {
         // The pool moved one Target out of jim's account
         assertEq(target.balanceOf(address(jim)), 99e18);
 
-        // Swap 1 Zero in
+        // Swap 1 PT in
         sid.swapIn(true);
 
-        // Ava tries to Join 1 of each (should take 1 Zero and some amount of Target)
+        // Ava tries to Join 1 of each (should take 1 PT and some amount of Target)
         ava.join();
         assertGe(target.balanceOf(address(ava)), 99e18);
-        assertEq(zero.balanceOf(address(ava)), 99e18);
+        assertEq(pt.balanceOf(address(ava)), 99e18);
 
-        // Swap 1 Zero in
+        // Swap 1 PT in
 
         sid.swapIn(true);
 
-        // Ava tries to Join 1 of each (should take 1 Zero and even less Target than last time)
+        // Ava tries to Join 1 of each (should take 1 PT and even less Target than last time)
         uint256 targetPreJoin = target.balanceOf(address(ava));
         ava.join();
         assertGe(target.balanceOf(address(ava)), 99e18);
@@ -283,16 +283,19 @@ contract SpaceTest is Test {
             100e18 - targetPreJoin,
             targetPreJoin - target.balanceOf(address(ava))
         );
-        // Should have joined Target / Zeros at the ratio of the pool
-        assertEq(zero.balanceOf(address(ava)), 98e18);
+        // Should have joined Target / PT at the ratio of the pool
+        assertEq(pt.balanceOf(address(ava)), 98e18);
         (, uint256[] memory balances, ) = vault.getPoolTokens(
             space.getPoolId()
         );
-        (uint256 zeroi, uint256 targeti) = space.getIndices();
+        (uint256 pti, uint256 targeti) = space.getIndices();
         // All tokens are 18 decimals in `setUp`
-        uint256 targetPerZero = (balances[targeti] * 1e18) / balances[zeroi];
-        // TargetPerZero * 1 = Target amount in for 1 Zero in
-        assertEq(target.balanceOf(address(ava)), targetPreJoin - targetPerZero);
+        uint256 targetPerPrincipal = (balances[targeti] * 1e18) / balances[pti];
+        // TargetPerPrincipal * 1 = Target amount in for 1 PT in
+        assertEq(
+            target.balanceOf(address(ava)),
+            targetPreJoin - targetPerPrincipal
+        );
 
         // Jim and ava exit
         jim.exit(space.balanceOf(address(jim)));
@@ -311,75 +314,75 @@ contract SpaceTest is Test {
             assertEq(error, "BAL#001");
         }
 
-        // The first swap only took Target from Jim, so he'll have fewer Target but more Zeros
+        // The first swap only took Target from Jim, so he'll have fewer Target but more PT
         assertClose(target.balanceOf(address(jim)), 99.2e18, 1e17);
         assertClose(target.balanceOf(address(ava)), 99.8e18, 1e17);
-        assertClose(zero.balanceOf(address(jim)), 101.5e18, 1e12);
-        assertClose(zero.balanceOf(address(ava)), 100.5e18, 1e12);
+        assertClose(pt.balanceOf(address(jim)), 101.5e18, 1e12);
+        assertClose(pt.balanceOf(address(ava)), 100.5e18, 1e12);
     }
 
     function testSpaceFees() public {
         // Target in
         jim.join(0, 20e18);
 
-        // Init some Zeros in via swap
+        // Init some PT in via swap
         sid.swapIn(true, 4e18);
 
         // Try as much of both in as possible
         jim.join(20e18, 20e18);
 
-        // We can determine the implied price of Zeros in Target by making a very small swap
-        uint256 zeroPrice = sid.swapIn(true, 0.0001e18).divDown(0.0001e18);
+        // We can determine the implied price of PT in Target by making a very small swap
+        uint256 ptPrice = sid.swapIn(true, 0.0001e18).divDown(0.0001e18);
 
         uint256 balance = 100e18;
-        uint256 startingPositionValue = balance + balance.mulDown(zeroPrice);
+        uint256 startingPositionValue = balance + balance.mulDown(ptPrice);
 
-        // price execution is getting worse for zero out
-        uint256 targetInFor1ZeroOut = 0;
+        // price execution is getting worse for pt out
+        uint256 targetInFor1PrincipalOut = 0;
         for (uint256 i = 0; i < 20; i++) {
-            uint256 _targetInFor1ZeroOut = ava.swapOut(false);
-            assertGt(_targetInFor1ZeroOut, targetInFor1ZeroOut);
-            targetInFor1ZeroOut = _targetInFor1ZeroOut;
-            // swap the zeros back in
+            uint256 _targetInFor1PrincipalOut = ava.swapOut(false);
+            assertGt(_targetInFor1PrincipalOut, targetInFor1PrincipalOut);
+            targetInFor1PrincipalOut = _targetInFor1PrincipalOut;
+            // swap the pts back in
             ava.swapIn(true, 1e18);
         }
 
         // price execution is getting worse for target out
-        uint256 zeroInFor1TargetOut = 0;
+        uint256 ptInFor1TargetOut = 0;
         for (uint256 i = 0; i < 20; i++) {
             // price execution is getting worse
-            uint256 _zeroInFor1TargetOut = ava.swapOut(true);
-            assertGt(_zeroInFor1TargetOut, zeroInFor1TargetOut);
-            zeroInFor1TargetOut = _zeroInFor1TargetOut;
+            uint256 _ptInFor1TargetOut = ava.swapOut(true);
+            assertGt(_ptInFor1TargetOut, ptInFor1TargetOut);
+            ptInFor1TargetOut = _ptInFor1TargetOut;
             // swap the target back in
             ava.swapIn(false, 1e18);
         }
 
-        // price execution is getting worse for zero in
-        uint256 targetOutFor1ZeroIn = type(uint256).max;
+        // price execution is getting worse for pt in
+        uint256 targetOutFor1PrincipalIn = type(uint256).max;
         for (uint256 i = 0; i < 20; i++) {
             // price execution is getting worse
-            uint256 _targetOutFor1ZeroIn = ava.swapIn(true);
-            assertLt(_targetOutFor1ZeroIn, targetOutFor1ZeroIn);
-            targetOutFor1ZeroIn = _targetOutFor1ZeroIn;
+            uint256 _targetOutFor1PrincipalIn = ava.swapIn(true);
+            assertLt(_targetOutFor1PrincipalIn, targetOutFor1PrincipalIn);
+            targetOutFor1PrincipalIn = _targetOutFor1PrincipalIn;
             // swap the target back in
-            ava.swapIn(false, _targetOutFor1ZeroIn);
+            ava.swapIn(false, _targetOutFor1PrincipalIn);
         }
 
         // price execution is getting worse for target in
-        uint256 zeroOutFor1TargetIn = type(uint256).max;
+        uint256 ptOutFor1TargetIn = type(uint256).max;
         for (uint256 i = 0; i < 20; i++) {
             // price execution is getting worse
-            uint256 _zeroOutFor1TargetIn = ava.swapIn(false);
-            assertLt(_zeroOutFor1TargetIn, zeroOutFor1TargetIn);
-            zeroOutFor1TargetIn = _zeroOutFor1TargetIn;
-            // swap the zeros back in
-            ava.swapIn(true, _zeroOutFor1TargetIn);
+            uint256 _ptOutFor1TargetIn = ava.swapIn(false);
+            assertLt(_ptOutFor1TargetIn, ptOutFor1TargetIn);
+            ptOutFor1TargetIn = _ptOutFor1TargetIn;
+            // swap the pts back in
+            ava.swapIn(true, _ptOutFor1TargetIn);
         }
 
         jim.exit(space.balanceOf(address(jim)));
         uint256 currentPositionValue = target.balanceOf(address(jim)) +
-            zero.balanceOf(address(jim)).mulDown(zeroPrice);
+            pt.balanceOf(address(jim)).mulDown(ptPrice);
         assertGt(currentPositionValue, startingPositionValue);
     }
 
@@ -387,7 +390,7 @@ contract SpaceTest is Test {
         // Target in
         jim.join(0, 10e18);
 
-        // Init some Zeros in
+        // Init some PT in
         sid.swapIn(true, 5.5e18);
 
         // Try as much of both in as possible
@@ -407,7 +410,7 @@ contract SpaceTest is Test {
         // Target in
         jim.join(0, 10e18);
 
-        // Init some Zeros in
+        // Init some PT in
         sid.swapIn(true, 5.5e18);
 
         // Try as much of both in as possible
@@ -496,24 +499,23 @@ contract SpaceTest is Test {
         // Jim join Target in
         jim.join(0, 10e18);
 
-        // Sid inits Zeros
+        // Sid inits PT
         sid.swapIn(true, 5.5e18);
 
         uint256 initScale = adapter.scale();
 
-        // Determine how much Target Jim gets for one Zero
-        uint256 targetOutForOneZeroInit = jim.swapIn(true);
+        // Determine how much Target Jim gets for one PT
+        uint256 targetOutForOnePrincipalInit = jim.swapIn(true);
         // Swap that Target back in to restore the AMM state to before the prev swap
-        jim.swapIn(false, targetOutForOneZeroInit);
+        jim.swapIn(false, targetOutForOnePrincipalInit);
 
         // Ava tries to join both in
         ava.join();
-        // BPT from Ava's (1 Zero, 1 Target) join
+        // BPT from Ava's (1 PT, 1 Target) join
         uint256 bptFromJoin = space.balanceOf(address(ava));
         uint256 targetInFromJoin = INTIAL_USER_BALANCE -
             target.balanceOf(address(ava));
-        uint256 zeroInFromJoin = INTIAL_USER_BALANCE -
-            zero.balanceOf(address(ava));
+        uint256 ptInFromJoin = INTIAL_USER_BALANCE - pt.balanceOf(address(ava));
 
         vm.warp(1 days);
         uint256 scale1Week = adapter.scale();
@@ -532,32 +534,34 @@ contract SpaceTest is Test {
             INTIAL_USER_BALANCE - target.balanceOf(address(ava)),
             1e3
         );
-        // Same amount of Zero in
+        // Same amount of PT in
         assertClose(
-            zeroInFromJoin * 2,
-            INTIAL_USER_BALANCE - zero.balanceOf(address(ava)),
+            ptInFromJoin * 2,
+            INTIAL_USER_BALANCE - pt.balanceOf(address(ava)),
             1e3
         );
 
         // Ava can exit her entire LP position just fine
         ava.exit(space.balanceOf(address(ava)));
 
-        uint256 targetOutForOneZero1Week = jim.swapIn(true);
-        // Gets fewer target out for one Zero when Target is worth more
-        assertGt(targetOutForOneZeroInit, targetOutForOneZero1Week);
+        uint256 targetOutForOnePrincipal1Week = jim.swapIn(true);
+        // Gets fewer target out for one PT when Target is worth more
+        assertGt(targetOutForOnePrincipalInit, targetOutForOnePrincipal1Week);
         // There is some change due to the YS invariant, but it's not much in 1 days time
         // With the rate the Target is increasing in value, its growth should account for most of the change
         // in swap rate
         assertClose(
-            targetOutForOneZeroInit,
-            targetOutForOneZero1Week.mulDown(scale1Week.divDown(initScale)),
+            targetOutForOnePrincipalInit,
+            targetOutForOnePrincipal1Week.mulDown(
+                scale1Week.divDown(initScale)
+            ),
             1e15
         );
     }
 
     function testDifferentDecimals() public {
         // Setup ----
-        // Set Zeros/Claims to 8 decimals
+        // Set PT/Yield to 8 decimals
         MockDividerSpace divider = new MockDividerSpace(8);
         // Set Target to 9 decimals
         MockAdapterSpace adapter = new MockAdapterSpace(9);
@@ -570,20 +574,20 @@ contract SpaceTest is Test {
         );
         Space space = Space(spaceFactory.create(address(adapter), maturity));
 
-        (address _zero, , , , , , , , ) = MockDividerSpace(divider).series(
+        (address _pt, , , , , , , , ) = MockDividerSpace(divider).series(
             address(adapter),
             maturity
         );
-        ERC20Mintable zero = ERC20Mintable(_zero);
+        ERC20Mintable pt = ERC20Mintable(_pt);
         ERC20Mintable _target = ERC20Mintable(adapter.target());
 
-        User max = new User(vault, space, zero, _target);
+        User max = new User(vault, space, pt, _target);
         _target.mint(address(max), 100e9);
-        zero.mint(address(max), 100e8);
+        pt.mint(address(max), 100e8);
 
-        User eve = new User(vault, space, zero, _target);
+        User eve = new User(vault, space, pt, _target);
         _target.mint(address(eve), 100e9);
-        zero.mint(address(eve), 100e8);
+        pt.mint(address(eve), 100e8);
 
         // Test ----
         // Max joins 1 Target in
@@ -592,13 +596,13 @@ contract SpaceTest is Test {
         // The pool moved one Target out of max's account
         assertEq(_target.balanceOf(address(max)), 99e9);
 
-        // Eve swaps 1 Zero in
+        // Eve swaps 1 PT in
         eve.swapIn(true, 1e8);
 
-        // Max tries to Join 1 of each (should take 1 Zero and some amount of Target)
+        // Max tries to Join 1 of each (should take 1 PT and some amount of Target)
         max.join(1e8, 1e9);
 
-        assertEq(zero.balanceOf(address(max)), 99e8);
+        assertEq(pt.balanceOf(address(max)), 99e8);
 
         // Compare Target pulled from max's account to the normal, 18 decimal case
         jim.join(0, 1e18);

@@ -51,15 +51,15 @@ contract MockAdapterSpace {
 
 // named Space to avoid name collision
 contract MockDividerSpace is DividerLike {
-    address public zeroAddress;
-    address public claimAddress;
+    address public ptAddress;
+    address public ytAddress;
 
-    constructor(uint8 zeroClaimDecimals) public {
-        ERC20Mintable _zero = new ERC20Mintable("zero", "zero", zeroClaimDecimals);
-        ERC20Mintable _claim = new ERC20Mintable("claim", "claim", zeroClaimDecimals);
+    constructor(uint8 principalYieldDecimals) public {
+        ERC20Mintable _pt = new ERC20Mintable("pt", "pt", principalYieldDecimals);
+        ERC20Mintable _yt = new ERC20Mintable("yt", "yt", principalYieldDecimals);
 
-        zeroAddress = address(_zero);
-        claimAddress = address(_claim);
+        ptAddress = address(_pt);
+        ytAddress = address(_yt);
     }
 
     function series(
@@ -81,8 +81,8 @@ contract MockDividerSpace is DividerLike {
         )
     {
         return (
-            zeroAddress,
-            claimAddress,
+            ptAddress,
+            ytAddress,
             address(0),
             uint256(0),
             uint256(0),
@@ -93,11 +93,11 @@ contract MockDividerSpace is DividerLike {
         );
     }
 
-    function zero(address, uint256) external override returns (address) {
-        return zeroAddress;
+    function pt(address, uint256) external override returns (address) {
+        return ptAddress;
     }
 
-    function claim(address, uint256) external override returns (address) {
-        return claimAddress;
+    function yt(address, uint256) external override returns (address) {
+        return ytAddress;
     }
 }
