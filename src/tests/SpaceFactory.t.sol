@@ -46,9 +46,9 @@ contract SpaceFactoryTest is DSTest {
         adapter = new MockAdapterSpace(18);
 
         ts = FixedPoint.ONE.divDown(FixedPoint.ONE * 31622400); // 1 / 1 year in seconds
-        // 0.95 for selling underlying
+        // 0.95 for selling Target
         g1 = (FixedPoint.ONE * 950).divDown(FixedPoint.ONE * 1000);
-        // 1 / 0.95 for selling Zeros
+        // 1 / 0.95 for selling PTs
         g2 = (FixedPoint.ONE * 1000).divDown(FixedPoint.ONE * 950);
 
         maturity1 = 15811200; // 6 months in seconds

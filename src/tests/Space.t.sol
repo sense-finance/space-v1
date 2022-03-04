@@ -86,12 +86,12 @@ contract SpaceTest is Test {
         adapter = new MockAdapterSpace(18);
 
         ts = FixedPoint.ONE.divDown(FixedPoint.ONE * 31622400); // 1 / 1 year in seconds
-        // 0.95 for selling underlying
+        // 0.95 for selling Target
         g1 = (FixedPoint.ONE * 950).divDown(FixedPoint.ONE * 1000);
         // 1 / 0.95 for selling Zeros
         g2 = (FixedPoint.ONE * 1000).divDown(FixedPoint.ONE * 950);
 
-        maturity = 15811200; // 6 months in seconds
+        maturity = 24 weeks; // 6 months in seconds
 
         authorizer = new Authorizer(address(this));
         vault = new Vault(authorizer, weth, 0, 0);
@@ -490,12 +490,6 @@ contract SpaceTest is Test {
             expectedFeesPaid += feeOnYield;
         }
 
-        emit log_named_uint(
-            "expectedFeesPaid",
-            (expectedFeesPaid * 0.1e18) / 1e18
-        );
-        return;
-
         // No additional BPT shares are minted for the controller until somebody joins or exits
         assertEq(
             space.balanceOf(address(protocolFeesCollector)),
@@ -517,19 +511,15 @@ contract SpaceTest is Test {
 
         emit log_named_uint("sam zeros", zero.balanceOf(address(sam)));
         emit log_named_uint("sam target", target.balanceOf(address(sam)));
-
-        // assertEq(zero.balanceOf(address(sam)), 0);
-        // assertEq(target.balanceOf(address(sam)), 0);
-
-        // emit log_named_uint("zero", zero.balanceOf(address(ava)));
-        // emit log_named_uint("target", target.balanceOf(address(ava)));
-
-        // emit log_named_uint("zero", zero.balanceOf(address(sid)));
-        // emit log_named_uint("target", target.balanceOf(address(sid)));
+        emit log_named_uint("expectedFeesPaid", expectedFeesPaid);
 
         // Sid has his entire iniital Zero balance back
         assertEq(zero.balanceOf(address(sid)), 100e18);
-        // assertEq(target.balanceOf(address(sid), 100e18);
+
+        // Sid has lost Target from trading fees
+        assertLt(target.balanceOf(address(sid)), 100e18);
+
+        emit log_named_uint("lost", 100e18 - target.balanceOf(address(sid)));
 
         // assertEq(
         //     space.balanceOf(address(protocolFeesCollector)),
@@ -715,7 +705,7 @@ contract SpaceTest is Test {
         assertGt(targetOut2, targetOut1);
     }
 
-    function testOracle() public {
+    function testPairOracle() public {
         vm.warp(0 hours);
         vm.roll(0);
 
@@ -755,6 +745,7 @@ contract SpaceTest is Test {
             ago: 0
         });
         uint256[] memory results = space.getTimeWeightedAverage(queries);
+        // Token order always the same for tests
         uint256 zeroPrice = results[0];
 
         assertClose(zeroPrice, zeroInstSpotPrice, 1e14);
@@ -806,6 +797,46 @@ contract SpaceTest is Test {
 
         (, , , , , , sampleTs) = space.getSample(1023);
         assertEq(sampleTs, 2047 hours);
+    }
+
+    function testPairOracleNoSamples() public {
+        vm.warp(0 hours);
+        vm.roll(0);
+
+        jim.join(0, 10e18);
+        sid.swapIn(true, 2e18);
+
+        // Establish the first price
+        vm.warp(1 hours);
+        vm.roll(1);
+        jim.join(1e18, 1e18);
+
+        uint256 twapPeriod = 1 hours;
+        IPriceOracle.OracleAverageQuery[]
+            memory queries = new IPriceOracle.OracleAverageQuery[](1);
+        queries[0] = IPriceOracle.OracleAverageQuery({
+            variable: IPriceOracle.Variable.PAIR_PRICE,
+            secs: twapPeriod,
+            ago: 0
+        });
+        uint256[] memory results = space.getTimeWeightedAverage(queries);
+
+        uint256 zeroPricePre = results[0];
+
+        vm.warp(5 hours);
+
+        queries = new IPriceOracle.OracleAverageQuery[](1);
+        queries[0] = IPriceOracle.OracleAverageQuery({
+            variable: IPriceOracle.Variable.PAIR_PRICE,
+            secs: twapPeriod,
+            ago: 0
+        });
+        results = space.getTimeWeightedAverage(queries);
+
+        // Token order always the same for tests
+        uint256 zeroPrice = results[0];
+
+        assertEq(zeroPricePre, zeroPrice);
     }
 
     // testJoinExactAmount

@@ -492,9 +492,31 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             return 0;
         }
 
-        // Equation inspired by `WeightedMath.sol` in PR#1111 in the Balancer monorepo,
-        // which also needs to calculate fees based on growth in the invariant
-        uint256 growth = fullInvariant.divDown(timeOnlyInvariant);
+        // The formula to calculate fees due is:
+        //
+        // where:
+        //   `g` is the factor by which reserves have grown
+        //   `time-only invariant` = x^a + y^a
+        //   `realized invariant`  = (g*x)^a + (g*y)^a
+        //
+        //              /   realized invariant     \ ^ (1/a)
+        // `growth` =  |   ----------------------  |
+        //              \   time-only invariant    /
+        //
+        //
+        // This gets us the proportional growth of all token balances, or `growth`
+        //
+        // We can plug this into the following equation from `WeightedMath` in PR#1111 on the Balancer monorepo:
+        //
+        //             supply * protocol fee * (growth - 1)
+        //                 ---------------------------
+        //                          growth
+        // toMint = --------------------------------------
+        //              1 - protocol fee * (growth - 1)
+        //                ---------------------------
+        //                          growth
+
+        uint256 growth = fullInvariant.divDown(timeOnlyInvariant).powDown(FixedPoint.ONE.divDown(a));
         uint256 k = protocolSwapFeePercentage.mulDown(growth.sub(FixedPoint.ONE)).divDown(growth);
 
         return totalSupply().mulDown(k).divDown(k.complement());
@@ -560,13 +582,29 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
                 balanceTarget.mulDown(_initScale)
             );
             // Cacluate the price of one Zero in Target terms
-            uint256 zeroPrice = underlyingOut.divDown(AdapterLike(adapter).scale()).divDown(1e12);
+            uint256 zeroPriceInTarget = underlyingOut.divDown(AdapterLike(adapter).scale()).divDown(1e12);
+            // Following Balancer's oracle conventions, get price of token 1 in terms of token 0 and
+            // and the price of one BPT in terms of token 0
+            //
+            // note: b/c reserves are upscaled coming into this function,
+            // price is upscaled to 18 decimals, regardless of the decimals used for token 0 & 1
+            uint256 pairPrice;
+            uint256 bptPrice;
+            if (zeroi == 0) {
+                // Zero terms
+                pairPrice = FixedPoint.ONE.divDown(zeroPriceInTarget);
+                bptPrice = balanceZero.divDown(totalSupply()) + balanceTarget.divDown(totalSupply()).mulDown(pairPrice);
+            } else {
+                // Target terms
+                pairPrice = zeroPriceInTarget;
+                bptPrice = balanceZero.divDown(totalSupply()).mulDown(pairPrice) + balanceTarget.divDown(totalSupply());
+            }
 
             uint256 oracleUpdatedIndex = _processPriceData(
                 oracleData.oracleSampleInitialTimestamp,
                 oracleData.oracleIndex,
-                LogCompression.toLowResLog(zeroPrice),
-                0, // BPT price TWAP is kept at `0` as it doesn't convey meaningful information in yieldspace
+                LogCompression.toLowResLog(pairPrice),
+                LogCompression.toLowResLog(bptPrice),
                 int256(oracleData.logInvariant)
             );
 
