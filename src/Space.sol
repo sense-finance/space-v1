@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.7.0;
 pragma experimental ABIEncoderV2;
 
@@ -42,9 +42,9 @@ interface AdapterLike {
 */
 
 /// @notice A Yieldspace implementation extended such that LPs can deposit
-/// [Zero, Yield-bearing asset], rather than [Zero, Underlying], while keeping the benefits of the
-/// yieldspace invariant (e.g. it can hold [Zero, cDAI], rather than [Zero, DAI], while still operating
-/// in "yield space" for the zero-coupon side. See the YieldSpace paper for more https://yield.is/YieldSpace.pdf)
+/// [Principal Token, Yield-bearing asset], rather than [Principal Token, Underlying], while keeping the benefits of the
+/// yieldspace invariant (e.g. it can hold [Principal Token, cDAI], rather than [Principal Token, DAI], while still operating
+/// in "yield space" for the principal token side. See the YieldSpace paper for more https://yield.is/YieldSpace.pdf)
 /// @dev We use much more internal storage here than in other Sense contracts because it
 /// conforms to Balancer's own style, and we're using several Balancer functions that play nicer if we do.
 /// @dev Requires an external "Adapter" contract with a `scale()` function which returns the
@@ -74,8 +74,8 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     /// @notice Maturity timestamp for associated Series
     uint256 public immutable maturity;
 
-    /// @notice Zero token index (there are only two tokens in this pool, so `targeti` is always just the complement)
-    uint256 public immutable zeroi;
+    /// @notice Principal Token index (there are only two tokens in this pool, so `targeti` is always just the complement)
+    uint256 public immutable pti;
 
     /// @notice Yieldspace config, passed in from the Space Factory
     uint256 public immutable ts;
@@ -87,14 +87,14 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     /// @dev Balancer pool id (as registered with the Balancer Vault)
     bytes32 internal immutable _poolId;
 
-    /// @dev Token registered at index zero for this pool
+    /// @dev Token registered at index 0 for this pool
     IERC20 internal immutable _token0;
 
     /// @dev Token registered at index one for this pool
     IERC20 internal immutable _token1;
 
-    /// @dev Factor needed to scale the Zero token to 18 decimals
-    uint256 internal immutable _scalingFactorZero;
+    /// @dev Factor needed to scale the PT to 18 decimals
+    uint256 internal immutable _scalingFactorPT;
 
     /// @dev Factor needed to scale the Target token to 18 decimals
     uint256 internal immutable _scalingFactorTarget;
@@ -121,7 +121,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         IVault vault,
         address _adapter,
         uint256 _maturity,
-        address zero,
+        address pt,
         uint256 _ts,
         uint256 _g1,
         uint256 _g2,
@@ -133,9 +133,9 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         IERC20[] memory tokens = new IERC20[](2);
 
         // Ensure that the array of tokens is correctly ordered
-        uint256 _zeroi = zero < target ? 0 : 1;
-        tokens[_zeroi] = IERC20(zero);
-        tokens[1 - _zeroi] = IERC20(target);
+        uint256 _pti = pt < target ? 0 : 1;
+        tokens[_pti] = IERC20(pt);
+        tokens[1 - _pti] = IERC20(target);
         vault.registerTokens(poolId, tokens, new address[](2));
 
         // Set Balancer-specific pool config
@@ -145,7 +145,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         _token1 = tokens[1];
         _protocolFeesCollector = address(vault.getProtocolFeesCollector());
 
-        _scalingFactorZero = 10**(BasicMath.sub(uint256(18), ERC20(zero).decimals()));
+        _scalingFactorPT = 10**(BasicMath.sub(uint256(18), ERC20(pt).decimals()));
         _scalingFactorTarget = 10**(BasicMath.sub(uint256(18), ERC20(target).decimals()));
 
         // Set Yieldspace config
@@ -154,7 +154,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         ts = _ts;
 
         // Set Space-specific slots
-        zeroi = _zeroi;
+        pti = _pti;
         adapter = _adapter;
         maturity = _maturity;
         oracleData.oracleEnabled = _oracleEnabled;
@@ -183,7 +183,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         _upscaleArray(reqAmountsIn);
 
         if (totalSupply() == 0) {
-            (uint256 _zeroi, uint256 _targeti) = getIndices();
+            (uint256 _pti, uint256 _targeti) = getIndices();
             uint256 initScale = AdapterLike(adapter).scale();
 
             // Convert target balance into Underlying
@@ -191,7 +191,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             uint256 underlyingIn = reqAmountsIn[_targeti].mulDown(initScale);
 
             // Just like weighted pool 2 token from the balancer v2 monorepo,
-            // we lock MINIMUM_BPT in by minting it for the zero address. This reduces potential
+            // we lock MINIMUM_BPT in by minting it for the PT address. This reduces potential
             // issues with rounding and ensures that this code path will only be executed once
             _mintPoolTokens(address(0), MINIMUM_BPT);
 
@@ -204,9 +204,9 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             // Set the scale value all future deposits will be backdated to
             _initScale = initScale;
 
-            // For the first join, we don't pull any Zeros, regardless of what the caller requested.
+            // For the first join, we don't pull any PT, regardless of what the caller requested.
             // This starts this pool off as synthetic Underlying only, as the yieldspace invariant expects
-            delete reqAmountsIn[_zeroi];
+            delete reqAmountsIn[_pti];
 
             // Cache starting Target reserves
             reserves = reqAmountsIn;
@@ -217,7 +217,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             return (reqAmountsIn, new uint256[](2));
         } else {
             // Update oracle with upscaled reserves
-            _updateOracle(lastChangeBlock, reserves[zeroi], reserves[1 - zeroi]);
+            _updateOracle(lastChangeBlock, reserves[pti], reserves[1 - pti]);
 
             // Calculate fees due before updating bpt balances to determine invariant growth from just swap fees
             if (protocolSwapFeePercentage != 0) {
@@ -245,7 +245,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             // Cache new reserves, post join
             _cacheReserves(reserves);
 
-            // Inspired by PR #990 in the balancer v2 monorepo, we always return zero dueProtocolFeeAmounts
+            // Inspired by PR #990 in the balancer v2 monorepo, we always return pt dueProtocolFeeAmounts
             // to the Vault, and pay protocol fees by minting BPT directly to the protocolFeeCollector instead
             return (amountsIn, new uint256[](2));
         }
@@ -267,7 +267,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         _upscaleArray(reserves);
 
         // Update oracle with upscaled reserves
-        _updateOracle(lastChangeBlock, reserves[zeroi], reserves[1 - zeroi]);
+        _updateOracle(lastChangeBlock, reserves[pti], reserves[1 - pti]);
 
         // Calculate fees due before updating bpt balances to determine invariant growth from just swap fees
         if (protocolSwapFeePercentage != 0) {
@@ -304,10 +304,10 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         uint256 reservesTokenIn,
         uint256 reservesTokenOut
     ) external override returns (uint256) {
-        bool zeroIn = request.tokenIn == _token0 ? zeroi == 0 : zeroi == 1;
+        bool pTIn = request.tokenIn == _token0 ? pti == 0 : pti == 1;
 
-        uint256 scalingFactorTokenIn = _scalingFactor(zeroIn);
-        uint256 scalingFactorTokenOut = _scalingFactor(!zeroIn);
+        uint256 scalingFactorTokenIn = _scalingFactor(pTIn);
+        uint256 scalingFactorTokenOut = _scalingFactor(!pTIn);
 
         // Upscale reserves to 18 decimals
         reservesTokenIn = _upscale(reservesTokenIn, scalingFactorTokenIn);
@@ -316,14 +316,14 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         // Update oracle with upscaled reserves
         _updateOracle(
             request.lastChangeBlock, 
-            zeroIn ? reservesTokenIn : reservesTokenOut, 
-            zeroIn ? reservesTokenOut: reservesTokenIn
+            pTIn ? reservesTokenIn : reservesTokenOut,
+            pTIn ? reservesTokenOut: reservesTokenIn
         );
 
         uint256 scale = AdapterLike(adapter).scale();
 
-        if (zeroIn) {
-            // Add LP supply to Zero reserves, as suggested by the yieldspace paper
+        if (pTIn) {
+            // Add LP supply to PT reserves, as suggested by the yieldspace paper
             reservesTokenIn = reservesTokenIn.add(totalSupply());
 
             // Backdate the Target reserves and convert to Underlying, as if it were still t0 (initialization)
@@ -332,22 +332,22 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             // Backdate the Target reserves and convert to Underlying, as if it were still t0 (initialization)
             reservesTokenIn = reservesTokenIn.mulDown(_initScale);
 
-            // Add LP supply to Zero reserves, as suggested by the yieldspace paper
+            // Add LP supply to PT reserves, as suggested by the yieldspace paper
             reservesTokenOut = reservesTokenOut.add(totalSupply());
         }
 
         if (request.kind == IVault.SwapKind.GIVEN_IN) {
             request.amount = _upscale(request.amount, scalingFactorTokenIn);
             // If Target is being swapped in, convert the amountIn to Underlying using present day Scale
-            if (!zeroIn) {
+            if (!pTIn) {
                 request.amount = request.amount.mulDown(scale);
             }
 
             // Determine the amountOut
-            uint256 amountOut = _onSwap(zeroIn, true, request.amount, reservesTokenIn, reservesTokenOut);
+            uint256 amountOut = _onSwap(pTIn, true, request.amount, reservesTokenIn, reservesTokenOut);
 
-            // If Zeros are being swapped in, convert the Underlying out back to Target using present day Scale
-            if (zeroIn) {
+            // If PTs are being swapped in, convert the Underlying out back to Target using present day Scale
+            if (pTIn) {
                 amountOut = amountOut.divDown(scale);
             }
 
@@ -355,16 +355,16 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             return _downscaleDown(amountOut, scalingFactorTokenOut);
         } else {
             request.amount = _upscale(request.amount, scalingFactorTokenOut);
-            // If Zeros are being swapped in, convert the amountOut from Target to Underlying using present day Scale
-            if (zeroIn) {
+            // If PTs are being swapped in, convert the amountOut from Target to Underlying using present day Scale
+            if (pTIn) {
                 request.amount = request.amount.mulDown(scale);
             }
 
             // Determine the amountIn
-            uint256 amountIn = _onSwap(zeroIn, false, request.amount, reservesTokenIn, reservesTokenOut);
+            uint256 amountIn = _onSwap(pTIn, false, request.amount, reservesTokenIn, reservesTokenOut);
 
             // If Target is being swapped in, convert the amountIn back to Target using present day Scale
-            if (!zeroIn) {
+            if (!pTIn) {
                 amountIn = amountIn.divDown(scale);
             }
 
@@ -383,13 +383,13 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         returns (uint256, uint256[] memory)
     {
         // Disambiguate reserves wrt token type
-        (uint256 _zeroi, uint256 _targeti) = getIndices();
-        (uint256 zeroReserves, uint256 targetReserves) = (reserves[_zeroi], reserves[_targeti]);
+        (uint256 _pti, uint256 _targeti) = getIndices();
+        (uint256 pTReserves, uint256 targetReserves) = (reserves[_pti], reserves[_targeti]);
 
         uint256[] memory amountsIn = new uint256[](2);
 
-        // If the pool has been initialized, but there aren't yet any Zeros in it
-        if (zeroReserves == 0) {
+        // If the pool has been initialized, but there aren't yet any PT in it
+        if (pTReserves == 0) {
             uint256 reqTargetIn = reqAmountsIn[_targeti];
             // Mint LP shares according to the relative amount of Target being offered
             uint256 bptToMint = BasicMath.mul(totalSupply(), reqTargetIn) / targetReserves;
@@ -400,33 +400,33 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             return (bptToMint, amountsIn);
         } else {
             // Disambiguate requested amounts wrt token type
-            (uint256 reqZerosIn, uint256 reqTargetIn) = (reqAmountsIn[_zeroi], reqAmountsIn[_targeti]);
+            (uint256 reqPTIn, uint256 reqTargetIn) = (reqAmountsIn[_pti], reqAmountsIn[_targeti]);
             // Caclulate the percentage of the pool we'd get if we pulled all of the requested Target in
             uint256 bptToMintTarget = BasicMath.mul(totalSupply(), reqTargetIn) / targetReserves;
 
-            // Caclulate the percentage of the pool we'd get if we pulled all of the requested Zeros in
-            uint256 bptToMintZeros = BasicMath.mul(totalSupply(), reqZerosIn) / zeroReserves;
+            // Caclulate the percentage of the pool we'd get if we pulled all of the requested PT in
+            uint256 bptToMintPT = BasicMath.mul(totalSupply(), reqPTIn) / pTReserves;
 
             // Determine which amountIn is our limiting factor
-            if (bptToMintTarget < bptToMintZeros) {
-                amountsIn[_zeroi] = BasicMath.mul(zeroReserves, reqTargetIn) / targetReserves;
+            if (bptToMintTarget < bptToMintPT) {
+                amountsIn[_pti] = BasicMath.mul(pTReserves, reqTargetIn) / targetReserves;
                 amountsIn[_targeti] = reqTargetIn;
 
                 return (bptToMintTarget, amountsIn);
             } else {
-                amountsIn[_zeroi] = reqZerosIn;
-                amountsIn[_targeti] = BasicMath.mul(targetReserves, reqZerosIn) / zeroReserves;
+                amountsIn[_pti] = reqPTIn;
+                amountsIn[_targeti] = BasicMath.mul(targetReserves, reqPTIn) / pTReserves;
 
-                return (bptToMintZeros, amountsIn);
+                return (bptToMintPT, amountsIn);
             }
         }
     }
 
-    /// @notice Calculate the missing variable in the yield space equation given the direction (Zero in vs. out)
+    /// @notice Calculate the missing variable in the yield space equation given the direction (PT in vs. out)
     /// @dev We round in favor of the LPs, meaning that traders get slightly worse prices than they would if we had full
     /// precision. However, the differences are small (on the order of 1e-11), and should only matter for very small trades.
     function _onSwap(
-        bool zeroIn,
+        bool pTIn,
         bool givenIn,
         uint256 amountDelta,
         uint256 reservesTokenIn,
@@ -443,7 +443,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         uint256 t = ts.mulDown(ttm);
 
         // Full `t` with fees baked in
-        uint256 a = (zeroIn ? g2 : g1).mulUp(t).complement();
+        uint256 a = (pTIn ? g2 : g1).mulUp(t).complement();
 
         // Pow up for `x1` & `y1` and down for `xOrY2` causes the pow induced error for `xOrYPost`
         // to tend towards higher values rather than lower.
@@ -481,8 +481,8 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         uint256 timeOnlyInvariant = _lastToken0Reserve.powDown(a).add(_lastToken1Reserve.powDown(a));
 
         // `x` & `y` for the actual invariant, with growth from time and fees
-        uint256 x = reserves[zeroi].add(totalSupply()).powDown(a);
-        uint256 y = reserves[1 - zeroi].mulDown(_initScale).powDown(a);
+        uint256 x = reserves[pti].add(totalSupply()).powDown(a);
+        uint256 y = reserves[1 - pti].mulDown(_initScale).powDown(a);
         uint256 fullInvariant = x.add(y);
 
         if (fullInvariant <= timeOnlyInvariant) {
@@ -525,19 +525,19 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     /// @notice Cache the given reserve amounts
     /// @dev if the oracle is set, this function will also cache the invariant and supply
     function _cacheReserves(uint256[] memory reserves) internal {
-        uint256 reserveZero = reserves[zeroi].add(totalSupply());
+        uint256 reservePT = reserves[pti].add(totalSupply());
         // Calculate the backdated Target reserve
-        uint256 reserveUnderlying = reserves[1 - zeroi].mulDown(_initScale);
+        uint256 reserveUnderlying = reserves[1 - pti].mulDown(_initScale);
 
         // Caclulate the invariant and store everything
         uint256 lastToken0Reserve;
         uint256 lastToken1Reserve;
-        if (zeroi == 0) {
-            lastToken0Reserve = reserveZero;
+        if (pti == 0) {
+            lastToken0Reserve = reservePT;
             lastToken1Reserve = reserveUnderlying;
         } else {
             lastToken0Reserve = reserveUnderlying;
-            lastToken1Reserve = reserveZero;
+            lastToken1Reserve = reservePT;
         }
 
         if (oracleData.oracleEnabled) {
@@ -566,7 +566,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     ///     * the Target side of the pool doesn't have enough liquidity
     function _updateOracle(
         uint256 lastChangeBlock,
-        uint256 balanceZero,
+        uint256 balancePT,
         uint256 balanceTarget
     ) internal {
         // The Target side of the pool must have at least 0.01 units of liquidity for us to collect a price sample
@@ -575,14 +575,14 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
 
             // Make a small pseudo swap to determine the instantaneous spot price
             uint256 underlyingOut = _onSwap(
-                true, // zero in
+                true, // PT in
                 true, // given in
-                1e12, // 1e12 zeros in
-                balanceZero.add(totalSupply()), 
+                1e12, // 1e12 PTs in
+                balancePT.add(totalSupply()),
                 balanceTarget.mulDown(_initScale)
             );
-            // Cacluate the price of one Zero in Target terms
-            uint256 zeroPriceInTarget = underlyingOut.divDown(AdapterLike(adapter).scale()).divDown(1e12);
+            // Cacluate the price of one PT in Target terms
+            uint256 pTPriceInTarget = underlyingOut.divDown(AdapterLike(adapter).scale()).divDown(1e12);
             // Following Balancer's oracle conventions, get price of token 1 in terms of token 0 and
             // and the price of one BPT in terms of token 0
             //
@@ -590,14 +590,14 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             // price is upscaled to 18 decimals, regardless of the decimals used for token 0 & 1
             uint256 pairPrice;
             uint256 bptPrice;
-            if (zeroi == 0) {
-                // Zero terms
-                pairPrice = FixedPoint.ONE.divDown(zeroPriceInTarget);
-                bptPrice = balanceZero.divDown(totalSupply()) + balanceTarget.divDown(totalSupply()).mulDown(pairPrice);
+            if (pti == 0) {
+                // PT terms
+                pairPrice = FixedPoint.ONE.divDown(pTPriceInTarget);
+                bptPrice = balancePT.divDown(totalSupply()) + balanceTarget.divDown(totalSupply()).mulDown(pairPrice);
             } else {
                 // Target terms
-                pairPrice = zeroPriceInTarget;
-                bptPrice = balanceZero.divDown(totalSupply()).mulDown(pairPrice) + balanceTarget.divDown(totalSupply());
+                pairPrice = pTPriceInTarget;
+                bptPrice = balancePT.divDown(totalSupply()).mulDown(pairPrice) + balanceTarget.divDown(totalSupply());
             }
 
             uint256 oracleUpdatedIndex = _processPriceData(
@@ -621,10 +621,10 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
 
     /* ========== PUBLIC GETTERS ========== */
 
-    /// @notice Get token indices for Zero and Target
-    function getIndices() public view returns (uint256 _zeroi, uint256 _targeti) {
-        _zeroi = zeroi;
-        _targeti = 1 - zeroi;
+    /// @notice Get token indices for PT and Target
+    function getIndices() public view returns (uint256 _pti, uint256 _targeti) {
+        _pti = pti;
+        _targeti = 1 - pti;
     }
 
     /* ========== BALANCER REQUIRED INTERFACE ========== */
@@ -639,9 +639,9 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
 
     /* ========== BALANCER SCALING FUNCTIONS ========== */
 
-    /// @notice Scaling factors for Zero & Target tokens
-    function _scalingFactor(bool zero) internal view returns (uint256) {
-        return zero ? _scalingFactorZero : _scalingFactorTarget;
+    /// @notice Scaling factors for PT & Target tokens
+    function _scalingFactor(bool pt) internal view returns (uint256) {
+        return pt ? _scalingFactorPT : _scalingFactorTarget;
     }
 
     /// @notice Scale number type to 18 decimals if need be
@@ -661,19 +661,19 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
 
     /// @notice Upscale array of token amounts to 18 decimals if need be
     function _upscaleArray(uint256[] memory amounts) internal view {
-        amounts[zeroi] = BasicMath.mul(amounts[zeroi], _scalingFactor(true));
-        amounts[1 - zeroi] = BasicMath.mul(amounts[1 - zeroi], _scalingFactor(false));
+        amounts[pti] = BasicMath.mul(amounts[pti], _scalingFactor(true));
+        amounts[1 - pti] = BasicMath.mul(amounts[1 - pti], _scalingFactor(false));
     }
 
     /// @notice Downscale array of token amounts to 18 decimals if need be, rounding down
     function _downscaleDownArray(uint256[] memory amounts) internal view {
-        amounts[zeroi] = amounts[zeroi] / _scalingFactor(true);
-        amounts[1 - zeroi] = amounts[1 - zeroi] / _scalingFactor(false);
+        amounts[pti] = amounts[pti] / _scalingFactor(true);
+        amounts[1 - pti] = amounts[1 - pti] / _scalingFactor(false);
     }
     /// @notice Downscale array of token amounts to 18 decimals if need be, rounding up
     function _downscaleUpArray(uint256[] memory amounts) internal view {
-        amounts[zeroi] = BasicMath.divUp(amounts[zeroi], _scalingFactor(true));
-        amounts[1 - zeroi] = BasicMath.divUp(amounts[1 - zeroi], _scalingFactor(false));
+        amounts[pti] = BasicMath.divUp(amounts[pti], _scalingFactor(true));
+        amounts[1 - pti] = BasicMath.divUp(amounts[1 - pti], _scalingFactor(false));
     }
 
     /* ========== MODIFIERS ========== */
