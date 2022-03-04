@@ -91,7 +91,7 @@ contract SpaceTest is Test {
         // 1 / 0.95 for selling PT
         g2 = (FixedPoint.ONE * 1000).divDown(FixedPoint.ONE * 950);
 
-        maturity = 24 weeks; // 6 months in seconds
+        maturity = 15811200; // 6 months in seconds
 
         authorizer = new Authorizer(address(this));
         vault = new Vault(authorizer, weth, 0, 0);

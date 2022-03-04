@@ -19,11 +19,15 @@ import { Errors, _require } from "./Errors.sol";
 interface AdapterLike {
     function scale() external returns (uint256);
 
-    function target() external returns (address);
+    function scaleStored() external view returns (uint256);
 
-    function symbol() external returns (string memory);
+    function target() external view returns (address);
 
-    function name() external returns (string memory);
+    function symbol() external view returns (string memory);
+
+    function name() external view returns (string memory);
+
+    function getUnderlyingPrice() external view returns (uint256);
 }
 
 /*
@@ -620,6 +624,70 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     }
 
     /* ========== PUBLIC GETTERS ========== */
+
+    function getFairBPTPriceInUnderlying(uint256 ptTwapDuration)
+        public
+        view
+        returns (uint256 price)
+    {
+        // TODO: check for 0 denoms 
+
+
+        // ORACLE_NOT_INITIALIZED
+        OracleAverageQuery[] memory queries = new OracleAverageQuery[](1);
+        queries[0] = OracleAverageQuery({
+            variable: Variable.PAIR_PRICE,
+            secs: ptTwapDuration,
+            ago: 120 // take the oracle from 2 mins ago - TWAP_PERIOD to 2 mins ago
+        });
+
+        uint256[] memory results = this.getTimeWeightedAverage(queries);
+        // FIXME
+        uint256 pricePT = 0;
+
+        // get sample is complete
+        uint256 priceUnderlying = AdapterLike(adapter).getUnderlyingPrice();
+
+        (, uint256[] memory balances, ) = _vault.getPoolTokens(_poolId);
+
+        uint256 ttm = maturity > block.timestamp
+            ? uint256(maturity - block.timestamp) * FixedPoint.ONE
+            : 0;
+        uint256 t = ts.mulDown(ttm);
+        uint256 a = t.complement();
+
+        uint256 r = pricePT
+            .divDown(priceUnderlying)
+            .powDown(FixedPoint.ONE.divDown(t))
+            .sub(FixedPoint.ONE);
+
+        uint256 k = balances[pti].add(totalSupply()).powDown(a).add(
+            balances[1 - pti].powDown(a)
+        );
+
+        uint256 equilibriumPTReservesPartial = k.mulDown(
+            FixedPoint
+                .ONE
+                .add(FixedPoint.ONE.divDown(r.add(FixedPoint.ONE)).powDown(a))
+                .powDown(FixedPoint.ONE.divDown(a))
+        );
+
+        uint256 equilibriumUnderlyingReserves = equilibriumPTReservesPartial
+            .divDown(FixedPoint.ONE.add(r));
+
+        price = equilibriumUnderlyingReserves
+            .mulDown(priceUnderlying)
+            .add(
+                equilibriumPTReservesPartial.sub(totalSupply()).mulDown(pricePT)
+            )
+            .add(
+                equilibriumUnderlyingReserves.mulDown(
+                    (AdapterLike(adapter).scaleStored() / _initScale).sub(
+                        FixedPoint.ONE
+                    )
+                )
+            );
+    }
 
     /// @notice Get token indices for PT and Target
     function getIndices() public view returns (uint256 _pti, uint256 _targeti) {
