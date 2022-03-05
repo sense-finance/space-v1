@@ -187,12 +187,11 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         _upscaleArray(reqAmountsIn);
 
         if (totalSupply() == 0) {
-            (uint256 _pti, uint256 _targeti) = getIndices();
             uint256 initScale = AdapterLike(adapter).scale();
 
             // Convert target balance into Underlying
             // note: We assume scale values will always be 18 decimals
-            uint256 underlyingIn = reqAmountsIn[_targeti].mulDown(initScale);
+            uint256 underlyingIn = reqAmountsIn[1 - pti].mulDown(initScale);
 
             // Just like weighted pool 2 token from the balancer v2 monorepo,
             // we lock MINIMUM_BPT in by minting it for the PT address. This reduces potential
@@ -210,7 +209,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
 
             // For the first join, we don't pull any PT, regardless of what the caller requested.
             // This starts this pool off as synthetic Underlying only, as the yieldspace invariant expects
-            delete reqAmountsIn[_pti];
+            delete reqAmountsIn[pti];
 
             // Cache starting Target reserves
             reserves = reqAmountsIn;
@@ -387,24 +386,23 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         returns (uint256, uint256[] memory)
     {
         // Disambiguate reserves wrt token type
-        (uint256 _pti, uint256 _targeti) = getIndices();
-        (uint256 pTReserves, uint256 targetReserves) = (reserves[_pti], reserves[_targeti]);
+        (uint256 pTReserves, uint256 targetReserves) = (reserves[pti], reserves[1 - pti]);
 
         uint256[] memory amountsIn = new uint256[](2);
 
         // If the pool has been initialized, but there aren't yet any PT in it
         if (pTReserves == 0) {
-            uint256 reqTargetIn = reqAmountsIn[_targeti];
+            uint256 reqTargetIn = reqAmountsIn[1 - pti];
             // Mint LP shares according to the relative amount of Target being offered
             uint256 bptToMint = BasicMath.mul(totalSupply(), reqTargetIn) / targetReserves;
 
             // Pull the entire offered Target
-            amountsIn[_targeti] = reqTargetIn;
+            amountsIn[1 - pti] = reqTargetIn;
 
             return (bptToMint, amountsIn);
         } else {
             // Disambiguate requested amounts wrt token type
-            (uint256 reqPTIn, uint256 reqTargetIn) = (reqAmountsIn[_pti], reqAmountsIn[_targeti]);
+            (uint256 reqPTIn, uint256 reqTargetIn) = (reqAmountsIn[pti], reqAmountsIn[1 - pti]);
             // Caclulate the percentage of the pool we'd get if we pulled all of the requested Target in
             uint256 bptToMintTarget = BasicMath.mul(totalSupply(), reqTargetIn) / targetReserves;
 
@@ -413,13 +411,13 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
 
             // Determine which amountIn is our limiting factor
             if (bptToMintTarget < bptToMintPT) {
-                amountsIn[_pti] = BasicMath.mul(pTReserves, reqTargetIn) / targetReserves;
-                amountsIn[_targeti] = reqTargetIn;
+                amountsIn[pti] = BasicMath.mul(pTReserves, reqTargetIn) / targetReserves;
+                amountsIn[1 - pti] = reqTargetIn;
 
                 return (bptToMintTarget, amountsIn);
             } else {
-                amountsIn[_pti] = reqPTIn;
-                amountsIn[_targeti] = BasicMath.mul(targetReserves, reqPTIn) / pTReserves;
+                amountsIn[pti] = reqPTIn;
+                amountsIn[1 - pti] = BasicMath.mul(targetReserves, reqPTIn) / pTReserves;
 
                 return (bptToMintPT, amountsIn);
             }
