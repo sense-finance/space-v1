@@ -70,6 +70,9 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     /// @notice Minimum BPT we can have for this pool after initialization
     uint256 public constant MINIMUM_BPT = 1e6;
 
+    /// @notice Approx seconds per year to determine the ipmlied rate
+    uint256 public constant SECONDS_PER_YEAR = 31540000;
+
     /* ========== PUBLIC IMMUTABLES ========== */
 
     /// @notice Adapter address for the associated Series
@@ -622,6 +625,19 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     }
 
     /* ========== PUBLIC GETTERS ========== */
+    event A(uint);
+
+    function getImpliedRate(uint256 pTPriceInTarget) public view returns (uint256) {
+        if (block.timestamp >= maturity) {
+            return 0;
+        }
+
+        return FixedPoint.ONE
+            .divDown(AdapterLike(adapter).scaleStored())
+            .divDown(pTPriceInTarget)
+            .powDown(SECONDS_PER_YEAR.divDown(maturity - block.timestamp))
+            .sub(FixedPoint.ONE);
+    }
 
     function getFairBPTPriceInUnderlying(uint256 ptTwapDuration)
         public
