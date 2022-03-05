@@ -637,7 +637,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             .sub(FixedPoint.ONE);
     }
 
-    function getPriceFromImpliedRate(uint256 impliedRate) public returns (uint256 pTPriceInTarget) {
+    function getPriceFromImpliedRate(uint256 impliedRate) public view returns (uint256 pTPriceInTarget) {
         if (block.timestamp >= maturity) {
             return FixedPoint.ONE;
         }
