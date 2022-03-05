@@ -843,32 +843,102 @@ contract SpaceTest is Test {
         assertEq(pTPricePre, pTPrice);
     }
 
-    function testImpliedRateUtil() public {
+    function testImpliedRateFromPriceUtil() public {
         adapter.setScale(1e18);
         // Compare to implied rates calculated externally
-        assertClose(space.getImpliedRate(0.5e18), 2985577898945961700, 1e14);
-        assertClose(space.getImpliedRate(0.9e18), 233857315042038880, 1e14);
-        assertClose(space.getImpliedRate(0.98e18), 41117876703261835, 1e14);
+        assertClose(space.getImpliedRateFromPrice(0.5e18), 2985577898945961700, 1e14);
+        assertClose(space.getImpliedRateFromPrice(0.9e18), 233857315042038880, 1e14);
+        assertClose(space.getImpliedRateFromPrice(0.98e18), 41117876703261835, 1e14);
 
         // Warp halfway through the term
         vm.warp(7905600);
-        assertClose(space.getImpliedRate(0.9e18), 522403873882749400, 1e14);
-        assertClose(space.getImpliedRate(0.98e18), 83926433191108040, 1e14);
+        assertClose(space.getImpliedRateFromPrice(0.9e18), 522403873882749400, 1e14);
+        assertClose(space.getImpliedRateFromPrice(0.98e18), 83926433191108040, 1e14);
 
         // Warp 7/8ths of the way through the term
         vm.warp(13834800);
-        assertClose(space.getImpliedRate(0.9e18), 4372996124019022000, 1e14);
-        assertClose(space.getImpliedRate(0.98e18), 380381815250082860, 1e14);
+        assertClose(space.getImpliedRateFromPrice(0.9e18), 4372996124019022000, 1e14);
+        assertClose(space.getImpliedRateFromPrice(0.98e18), 380381815250082860, 1e14);
 
         vm.warp(maturity);
-        assertEq(space.getImpliedRate(0.9e18), 0);
+        assertEq(space.getImpliedRateFromPrice(0.9e18), 0);
 
         vm.warp(0);
         // Try a different scale
         adapter.setScale(2e18);
-        assertClose(space.getImpliedRate(0.45e18), 233857315042038880, 1e14);
+        assertClose(space.getImpliedRateFromPrice(0.45e18), 233857315042038880, 1e14);
     }
 
+    function testPriceFromImpliedRateUtil() public {
+        adapter.setScale(1e18);
+        assertClose(
+            space.getPriceFromImpliedRate(
+                space.getImpliedRateFromPrice(0.5e18)
+            ),
+            0.5e18,
+            1e14
+        );
+        assertClose(
+            space.getPriceFromImpliedRate(
+                space.getImpliedRateFromPrice(0.9e18)
+            ),
+            0.9e18,
+            1e14
+        );
+        assertClose(
+            space.getPriceFromImpliedRate(
+                space.getImpliedRateFromPrice(0.98e18)
+            ),
+            0.98e18,
+            1e14
+        );
+
+        vm.warp(7905600);
+        assertClose(
+            space.getPriceFromImpliedRate(
+                space.getImpliedRateFromPrice(0.9e18)
+            ),
+            0.9e18,
+            1e14
+        );
+        assertClose(
+            space.getPriceFromImpliedRate(
+                space.getImpliedRateFromPrice(0.98e18)
+            ),
+            0.98e18,
+            1e14
+        );
+
+        vm.warp(13834800);
+        assertClose(
+            space.getPriceFromImpliedRate(
+                space.getImpliedRateFromPrice(0.9e18)
+            ),
+            0.9e18,
+            1e14
+        );
+        assertClose(
+            space.getPriceFromImpliedRate(
+                space.getImpliedRateFromPrice(0.98e18)
+            ),
+            0.98e18,
+            1e14
+        );
+
+
+        vm.warp(maturity);
+        assertEq(space.getPriceFromImpliedRate(0.1e18), 1e18);
+
+        vm.warp(0);
+        adapter.setScale(2e18);
+        assertClose(
+            space.getPriceFromImpliedRate(
+                space.getImpliedRateFromPrice(0.45e18)
+            ),
+            0.45e18,
+            1e14
+        );
+    }
 
     // testJoinExactAmount
     // testPoolFees

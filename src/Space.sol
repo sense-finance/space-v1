@@ -625,18 +625,28 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     }
 
     /* ========== PUBLIC GETTERS ========== */
-    event A(uint);
 
-    function getImpliedRate(uint256 pTPriceInTarget) public view returns (uint256) {
+    function getImpliedRateFromPrice(uint256 pTPriceInTarget) public view returns (uint256 impliedRate) {
         if (block.timestamp >= maturity) {
             return 0;
         }
 
-        return FixedPoint.ONE
-            .divDown(AdapterLike(adapter).scaleStored())
+        impliedRate = FixedPoint.ONE.divDown(AdapterLike(adapter).scaleStored())
             .divDown(pTPriceInTarget)
             .powDown(SECONDS_PER_YEAR.divDown(maturity - block.timestamp))
             .sub(FixedPoint.ONE);
+    }
+
+    function getPriceFromImpliedRate(uint256 impliedRate) public returns (uint256 pTPriceInTarget) {
+        if (block.timestamp >= maturity) {
+            return FixedPoint.ONE;
+        }
+
+        pTPriceInTarget = FixedPoint.ONE
+            .divDown(impliedRate.add(FixedPoint.ONE)
+            .powDown((maturity - block.timestamp)
+            .divDown(SECONDS_PER_YEAR)))
+            .divDown(AdapterLike(adapter).scaleStored());
     }
 
     function getFairBPTPriceInUnderlying(uint256 ptTwapDuration)
