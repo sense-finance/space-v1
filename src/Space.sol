@@ -592,7 +592,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             // and the price of one BPT in terms of token 0
             //
             // note: b/c reserves are upscaled coming into this function,
-            // price is upscaled to 18 decimals, regardless of the decimals used for token 0 & 1
+            // price is already upscaled to 18 decimals, regardless of the decimals used for token 0 & 1
             uint256 pairPrice;
             uint256 bptPrice;
             if (pti == 0) {
@@ -631,8 +631,8 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             return 0;
         }
 
-        impliedRate = FixedPoint.ONE.divDown(AdapterLike(adapter).scaleStored())
-            .divDown(pTPriceInTarget)
+        impliedRate = FixedPoint.ONE
+            .divDown(pTPriceInTarget.mulDown(AdapterLike(adapter).scaleStored()))
             .powDown(SECONDS_PER_YEAR.divDown(maturity - block.timestamp))
             .sub(FixedPoint.ONE);
     }
@@ -649,29 +649,23 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             .divDown(AdapterLike(adapter).scaleStored());
     }
 
-    function getFairBPTPriceInUnderlying(uint256 ptTwapDuration)
+    function getFairBPTPrice(uint256 ptTwapDuration)
         public
         view
-        returns (uint256 price)
+        returns (uint256 fairBptPriceInTarget)
     {
-        // TODO: check for 0 denoms 
-
-
-        // ORACLE_NOT_INITIALIZED
         OracleAverageQuery[] memory queries = new OracleAverageQuery[](1);
         queries[0] = OracleAverageQuery({
             variable: Variable.PAIR_PRICE,
             secs: ptTwapDuration,
-            ago: 120 // take the oracle from 2 mins ago - TWAP_PERIOD to 2 mins ago
+            ago: 120 // take the oracle from 2 mins ago + ptTwapDuration ago to 2 mins ago
         });
 
+        // TWAP read will revert with ORACLE_NOT_INITIALIZED if the buffer has not been filled
         uint256[] memory results = this.getTimeWeightedAverage(queries);
-        // FIXME
-        uint256 pricePT = 0;
+        uint256 pTPriceInTarget = pti == 1 ? results[0] : FixedPoint.ONE.divDown(results[0]);
 
-        // get sample is complete
-        uint256 priceUnderlying = AdapterLike(adapter).getUnderlyingPrice();
-
+        uint256 impliedRate = getImpliedRateFromPrice(pTPriceInTarget);
         (, uint256[] memory balances, ) = _vault.getPoolTokens(_poolId);
 
         uint256 ttm = maturity > block.timestamp
@@ -680,37 +674,22 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         uint256 t = ts.mulDown(ttm);
         uint256 a = t.complement();
 
-        uint256 r = pricePT
-            .divDown(priceUnderlying)
-            .powDown(FixedPoint.ONE.divDown(t))
-            .sub(FixedPoint.ONE);
-
         uint256 k = balances[pti].add(totalSupply()).powDown(a).add(
-            balances[1 - pti].powDown(a)
+            balances[1 - pti].mulDown(_initScale).powDown(a)
         );
 
-        uint256 equilibriumPTReservesPartial = k.mulDown(
-            FixedPoint
-                .ONE
-                .add(FixedPoint.ONE.divDown(r.add(FixedPoint.ONE)).powDown(a))
-                .powDown(FixedPoint.ONE.divDown(a))
-        );
+        // Equilibrium reserves for the PT side, w/o the final `- totalSupply` at the end
+        uint256 equilibriumPTReservesPartial = k.divDown(
+            FixedPoint.ONE.divDown(FixedPoint.ONE.add(impliedRate).powDown(a)).add(FixedPoint.ONE)
+        ).powDown(FixedPoint.ONE.divDown(a));
 
-        uint256 equilibriumUnderlyingReserves = equilibriumPTReservesPartial
-            .divDown(FixedPoint.ONE.add(r));
+        uint256 equilibriumTargetReserves = equilibriumPTReservesPartial
+            .divDown(_initScale.mulDown(FixedPoint.ONE.add(impliedRate)));
 
-        price = equilibriumUnderlyingReserves
-            .mulDown(priceUnderlying)
-            .add(
-                equilibriumPTReservesPartial.sub(totalSupply()).mulDown(pricePT)
-            )
-            .add(
-                equilibriumUnderlyingReserves.mulDown(
-                    (AdapterLike(adapter).scaleStored() / _initScale).sub(
-                        FixedPoint.ONE
-                    )
-                )
-            );
+        fairBptPriceInTarget = equilibriumTargetReserves
+            // Complete the equilibrium PT reserve calc
+            .add(equilibriumPTReservesPartial.sub(totalSupply())
+            .mulDown(pTPriceInTarget)).divDown(totalSupply());
     }
 
     /// @notice Get token indices for PT and Target

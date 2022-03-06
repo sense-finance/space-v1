@@ -28,15 +28,24 @@ contract Test is DSTest {
         uint256 a,
         uint256 b,
         uint256 _tolerance
-    ) internal {
-        uint256 diff = a < b ? b - a : a - b;
-        if (diff > _tolerance) {
+    ) public {
+        bool _isClose = isClose(a, b, _tolerance);
+        if (!_isClose) {
             emit log("Error: abs(a, b) < tolerance not satisfied [uint]");
             emit log_named_uint("  Expected", b);
             emit log_named_uint("  Tolerance", _tolerance);
             emit log_named_uint("    Actual", a);
             fail();
         }
+    }
+
+    function isClose(
+        uint256 a,
+        uint256 b,
+        uint256 _tolerance
+    ) public view returns (bool) {
+        uint256 diff = a < b ? b - a : a - b;
+        return diff <= _tolerance;
     }
 
     function fuzzWithBounds(
@@ -749,7 +758,7 @@ contract SpaceTest is Test {
             ago: 0
         });
         uint256[] memory results = space.getTimeWeightedAverage(queries);
-        // Token order always the same for tests
+        // Token order always the same for tests, PT in terms of Target
         uint256 pTPrice = results[0];
 
         assertClose(pTPrice, pTInstSpotPrice, 1e14);
@@ -940,10 +949,86 @@ contract SpaceTest is Test {
         );
     }
 
-    // testJoinExactAmount
-    // testPoolFees
+    function testFairBptPrice() public {
+        adapter.setScale(1e18);
+        vm.warp(0 hours);
+        vm.roll(0);
+
+        jim.join(0, 10e18);
+        sid.swapIn(true, 2e18);
+
+        // Will fail with an invalid seconds query if the oracle isn't ready
+        try space.getFairBPTPrice(1 hours) {
+            fail();
+        } catch Error(string memory error) {
+            assertEq(error, "BAL#312");
+        }
+
+        // Establish the first price
+        vm.warp(1 hours);
+        vm.roll(1);
+        jim.join(1e18, 1e18);
+
+        // Establish the second price
+        vm.warp(2 hours);
+        vm.roll(2);
+        jim.join(1e18, 1e18);
+
+        IPriceOracle.OracleAverageQuery[]
+            memory queries = new IPriceOracle.OracleAverageQuery[](1);
+        queries[0] = IPriceOracle.OracleAverageQuery({
+            variable: IPriceOracle.Variable.PAIR_PRICE,
+            secs: 1 hours,
+            ago: 120
+        });
+        uint256[] memory results = space.getTimeWeightedAverage(queries);
+        uint256 fairPTPriceInTarget1 = results[0];
+
+        uint256 theoFairBptValue1 = space.getFairBPTPrice(10 minutes);
+        (, uint256[] memory balances, ) = vault.getPoolTokens(
+            space.getPoolId()
+        );
+
+        // The BPT value using the safe price and the spot reserves
+        uint256 spotBptValueFairPrice1 = balances[space.pti()]
+            .mulDown(fairPTPriceInTarget1)
+            .add(balances[1 - space.pti()])
+            .divDown(space.totalSupply());
+
+        // Since the oracle price and the current spot price are the same, 
+        // they fair equilibrium BPT price should be very close the actual spot BPT price
+        assertClose(spotBptValueFairPrice1, theoFairBptValue1, 1e14);
+
+
+        // Swapping in within the same block as the last join won't update the oracle 
+        // (max of one price stored per block), 
+        // but it will update the spot reserves
+        sid.swapIn(true, 2e18);
+
+        queries = new IPriceOracle.OracleAverageQuery[](1);
+        queries[0] = IPriceOracle.OracleAverageQuery({
+            variable: IPriceOracle.Variable.PAIR_PRICE,
+            secs: 1 hours,
+            ago: 120
+        });
+        results = space.getTimeWeightedAverage(queries);
+        uint256 fairPTPriceInTarget2 = results[0];
+
+        assertEq(fairPTPriceInTarget1, fairPTPriceInTarget2);
+
+        uint256 theoFairBptValue2 = space.getFairBPTPrice(10 minutes);
+        // So the theoretical BPT equilibrium price has not changed much
+        assertClose(theoFairBptValue1, theoFairBptValue2, 2e15);
+        // Whereas the spot value fair price is notably different
+        (, balances, ) = vault.getPoolTokens(
+            space.getPoolId()
+        );
+        uint256 spotBptValueFairPrice2 = balances[space.pti()]
+            .mulDown(fairPTPriceInTarget1)
+            .add(balances[1 - space.pti()])
+            .divDown(space.totalSupply());
+        assertTrue(!isClose(spotBptValueFairPrice1, spotBptValueFairPrice2, 9e15));
+    }
+
     // testPriceNeverAboveOne
-    // testFuzzScaleValues
-    // testYSInvariant
-    // testTimeshift
 }
