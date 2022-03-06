@@ -10,10 +10,12 @@ import {User} from "./utils/User.sol";
 
 // External references
 import {Vault, IVault, IWETH, IAuthorizer, IAsset, IProtocolFeesCollector} from "@balancer-labs/v2-vault/contracts/Vault.sol";
+import {IPoolSwapStructs} from "@balancer-labs/v2-vault/contracts/interfaces/IPoolSwapStructs.sol";
 import {Authentication} from "@balancer-labs/v2-solidity-utils/contracts/helpers/Authentication.sol";
 import {IERC20} from "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/IERC20.sol";
 import {Authorizer} from "@balancer-labs/v2-vault/contracts/Authorizer.sol";
 import {FixedPoint} from "@balancer-labs/v2-solidity-utils/contracts/math/FixedPoint.sol";
+import {IPriceOracle} from "@balancer-labs/v2-pool-utils/contracts/interfaces/IPriceOracle.sol";
 
 // Internal references
 import {SpaceFactory} from "../SpaceFactory.sol";
@@ -68,6 +70,7 @@ contract SpaceTest is Test {
     User internal jim;
     User internal ava;
     User internal sid;
+    User internal sam;
 
     uint256 internal ts;
     uint256 internal g1;
@@ -92,7 +95,14 @@ contract SpaceTest is Test {
 
         authorizer = new Authorizer(address(this));
         vault = new Vault(authorizer, weth, 0, 0);
-        spaceFactory = new SpaceFactory(vault, address(divider), ts, g1, g2);
+        spaceFactory = new SpaceFactory(
+            vault,
+            address(divider),
+            ts,
+            g1,
+            g2,
+            true
+        );
 
         space = Space(spaceFactory.create(address(adapter), maturity));
 
@@ -121,6 +131,8 @@ contract SpaceTest is Test {
         sid = new User(vault, space, pt, target);
         pt.mint(address(sid), INTIAL_USER_BALANCE);
         target.mint(address(sid), INTIAL_USER_BALANCE);
+
+        sam = new User(vault, space, pt, target);
     }
 
     function testJoinOnce() public {
@@ -446,26 +458,93 @@ contract SpaceTest is Test {
         authorizer.grantRole(actionId, address(this));
         protocolFeesCollector.setSwapFeePercentage(0.1e18);
 
+        assertEq(space.balanceOf(address(protocolFeesCollector)), 0);
+
+        // Initialize liquidity
         jim.join(0, 10e18);
-        sid.swapIn(true, 5.5e18);
+        jim.swapIn(true, 5.5e18);
         jim.join(10e18, 10e18);
 
-        for (uint256 i = 0; i < 6; i++) {
-            ava.swapOut(false);
-            ava.swapIn(true);
+        ava.join(10e18, 10e18);
+
+        uint256 NUM_WASH_TRADES = 6;
+
+        emit log_named_uint("PT", pt.balanceOf(address(ava)));
+        emit log_named_uint("target", target.balanceOf(address(ava)));
+
+        // Fee controller BPT before the swap run
+        uint256 feeControllerBPTPre = space.balanceOf(
+            address(protocolFeesCollector)
+        );
+
+        uint256 expectedFeesPaid = 0;
+
+        // Make some swaps
+        for (uint256 i = 0; i < NUM_WASH_TRADES; i++) {
+            // 5% of yield on each trade
+            uint256 targetIn = sid.swapOut(false);
+            uint256 idealYield = 1e18 - (targetIn * 0.95e18) / 1e18;
+            uint256 feeOnYield = (idealYield * 0.05e18) / 1e18;
+            expectedFeesPaid += feeOnYield;
+
+            uint256 targetOut = sid.swapIn(true);
+            idealYield = 1e18 - (targetOut * 0.95e18) / 1e18;
+            feeOnYield = (idealYield * 0.05e18) / 1e18;
+            expectedFeesPaid += feeOnYield;
         }
 
-        // No additional lp shares extracted until somebody joins or exits
-        assertEq(
-            space.balanceOf(address(protocolFeesCollector)),
-            1573707624439152
+        emit log_named_uint(
+            "expectedFeesPaid",
+            (expectedFeesPaid * 0.1e18) / 1e18
         );
-        jim.exit(space.balanceOf(address(jim)));
+        return;
 
+        // No additional BPT shares are minted for the controller until somebody joins or exits
         assertEq(
             space.balanceOf(address(protocolFeesCollector)),
-            7502641632334072
+            feeControllerBPTPre
         );
+        ava.exit(space.balanceOf(address(ava)));
+
+        uint256 feeControllerNewBPT = space.balanceOf(
+            address(protocolFeesCollector)
+        ) - feeControllerBPTPre;
+
+        // Transfer fee controller's new BPT to sam, then redeem it
+        vm.prank(
+            address(protocolFeesCollector),
+            address(protocolFeesCollector)
+        );
+        space.transfer(address(sam), feeControllerNewBPT);
+        sam.exit(space.balanceOf(address(sam)));
+
+        emit log_named_uint("sam PTs", pt.balanceOf(address(sam)));
+        emit log_named_uint("sam target", target.balanceOf(address(sam)));
+
+        // assertEq(pt.balanceOf(address(sam)), 0);
+        // assertEq(target.balanceOf(address(sam)), 0);
+
+        // emit log_named_uint("PT", pt.balanceOf(address(ava)));
+        // emit log_named_uint("target", target.balanceOf(address(ava)));
+
+        // emit log_named_uint("PT", pt.balanceOf(address(sid)));
+        // emit log_named_uint("target", target.balanceOf(address(sid)));
+
+        // Sid has his entire iniital PT balance back
+        assertEq(pt.balanceOf(address(sid)), 100e18);
+        // assertEq(target.balanceOf(address(sid), 100e18);
+
+        // assertEq(
+        //     space.balanceOf(address(protocolFeesCollector)),
+        //     0
+        // );
+
+        // 7502641632334072
+        // 7488891101757368
+
+        // jim loss due to fees
+        // protocol controller gain due to fees (lines up with % of yield traded)
+        // fee controller should own x% of liquidity (based on x% of fees)
 
         // TODO fees don't eat into non-trade invariant growth
         // TODO fees are correctly proportioned to the fee set in the vault
@@ -570,7 +649,8 @@ contract SpaceTest is Test {
             address(divider),
             ts,
             g1,
-            g2
+            g2,
+            true
         );
         Space space = Space(spaceFactory.create(address(adapter), maturity));
 
@@ -637,6 +717,99 @@ contract SpaceTest is Test {
         // Receive more and more Target out as the Scale value decreases
         assertGt(targetOut3, targetOut2);
         assertGt(targetOut2, targetOut1);
+    }
+
+    function testOracle() public {
+        vm.warp(0 hours);
+        vm.roll(0);
+
+        jim.join(0, 10e18);
+        sid.swapIn(true, 2e18);
+
+        uint256 sampleTs;
+        (, , , , , , sampleTs) = space.getSample(1);
+        // Uninitialized samples are identified by a PT timestamp
+        assertEq(sampleTs, 0);
+
+        // Establish the first price
+        vm.warp(1 hours);
+        vm.roll(1);
+        jim.join(1e18, 1e18);
+
+        (, , , , , , sampleTs) = space.getSample(1);
+        assertEq(sampleTs, 1 hours);
+
+        vm.warp(2 hours);
+        vm.roll(2);
+        // Tiny join so that the reserves when the TWAP is deteremined are similar to what they'll be
+        // when we determine the instantaneous spot price
+        jim.join(1, 1);
+        (, , , , , , sampleTs) = space.getSample(2);
+        assertEq(sampleTs, 2 hours);
+
+        uint256 targetOut = jim.swapIn(true, 1e12);
+        uint256 pTInstSpotPrice = targetOut.divDown(1e12);
+
+        uint256 twapPeriod = 1 hours;
+        IPriceOracle.OracleAverageQuery[]
+            memory queries = new IPriceOracle.OracleAverageQuery[](1);
+        queries[0] = IPriceOracle.OracleAverageQuery({
+            variable: IPriceOracle.Variable.PAIR_PRICE,
+            secs: twapPeriod,
+            ago: 0
+        });
+        uint256[] memory results = space.getTimeWeightedAverage(queries);
+        uint256 pTPrice = results[0];
+
+        assertClose(pTPrice, pTInstSpotPrice, 1e14);
+
+        vm.warp(20 hours);
+        vm.roll(20);
+        jim.join(1, 1);
+        queries[0] = IPriceOracle.OracleAverageQuery({
+            variable: IPriceOracle.Variable.PAIR_PRICE,
+            secs: twapPeriod,
+            ago: 0
+        });
+        results = space.getTimeWeightedAverage(queries);
+        pTPrice = results[0];
+
+        targetOut = jim.swapIn(true, 1e12);
+        pTInstSpotPrice = targetOut.divDown(1e12);
+
+        assertClose(pTPrice, pTInstSpotPrice, 1e14);
+
+        twapPeriod = 22 hours;
+        queries[0] = IPriceOracle.OracleAverageQuery({
+            variable: IPriceOracle.Variable.PAIR_PRICE,
+            secs: twapPeriod,
+            ago: 0
+        });
+
+        // Can't twap beyond what has been recorded
+        try space.getTimeWeightedAverage(queries) {
+            fail();
+        } catch Error(string memory error) {
+            assertEq(error, "BAL#312");
+        }
+
+        for (uint256 i = 3; i < 1027; i++) {
+            vm.warp(i * 1 hours);
+            vm.roll(i);
+            jim.join(1, 1);
+        }
+
+        (, , , , , , sampleTs) = space.getSample(1023);
+        assertEq(sampleTs, 1023 hours);
+
+        for (uint256 i = 1027; i < 2050; i++) {
+            vm.warp(i * 1 hours);
+            vm.roll(i);
+            jim.join(1, 1);
+        }
+
+        (, , , , , , sampleTs) = space.getSample(1023);
+        assertEq(sampleTs, 2047 hours);
     }
 
     // testJoinExactAmount

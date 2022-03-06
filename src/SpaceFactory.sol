@@ -52,18 +52,23 @@ contract SpaceFactory is Trust {
     uint256 public g1;
     uint256 public g2;
 
+    /// @notice Oracle flag
+    bool public oracleEnabled;
+
     constructor(
         IVault _vault,
         address _divider,
         uint256 _ts,
         uint256 _g1,
-        uint256 _g2
+        uint256 _g2,
+        bool _oracleEnabled
     ) Trust(msg.sender) {
         vault = _vault;
         divider = _divider;
         ts = _ts;
         g1 = _g1;
         g2 = _g2;
+        oracleEnabled = _oracleEnabled;
     }
 
     /// @notice Deploys a new `Space` contract
@@ -80,7 +85,8 @@ contract SpaceFactory is Trust {
             ),
             ts,
             g1,
-            g2
+            g2,
+            oracleEnabled
         ));
 
         pools[adapter][maturity] = pool;
@@ -89,7 +95,8 @@ contract SpaceFactory is Trust {
     function setParams(
         uint256 _ts,
         uint256 _g1,
-        uint256 _g2
+        uint256 _g2,
+        bool _oracleEnabled
     ) public requiresTrust {
         // g1 is for swapping Targets to PT and should discount the effective interest
         _require(_g1 <= FixedPoint.ONE, Errors.INVALID_G1);
@@ -99,5 +106,6 @@ contract SpaceFactory is Trust {
         ts = _ts;
         g1 = _g1;
         g2 = _g2;
+        oracleEnabled = _oracleEnabled;
     }
 }
