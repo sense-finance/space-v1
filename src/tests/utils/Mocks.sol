@@ -27,6 +27,7 @@ contract ERC20Mintable is ERC20 {
 // named Space to avoid name collision
 contract MockAdapterSpace {
     uint256 internal _scale;
+    uint256 public scaleStored;
     address public target;
     uint256 public start;
     string public symbol = "ADP";
@@ -46,6 +47,7 @@ contract MockAdapterSpace {
 
     function setScale(uint256 scale_) external returns (uint256) {
         _scale = scale_;
+        scaleStored = scale_;
     }
 }
 

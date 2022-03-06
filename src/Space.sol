@@ -8,22 +8,26 @@ import { Math as BasicMath } from "@balancer-labs/v2-solidity-utils/contracts/ma
 import { BalancerPoolToken } from "@balancer-labs/v2-pool-utils/contracts/BalancerPoolToken.sol";
 import { ERC20 } from "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/ERC20.sol";
 import { LogCompression } from "@balancer-labs/v2-solidity-utils/contracts/helpers/LogCompression.sol";
-import { PoolPriceOracle } from "@balancer-labs/v2-pool-utils/contracts/oracle/PoolPriceOracle.sol";
 
 import { IMinimalSwapInfoPool } from "@balancer-labs/v2-vault/contracts/interfaces/IMinimalSwapInfoPool.sol";
 import { IVault } from "@balancer-labs/v2-vault/contracts/interfaces/IVault.sol";
 import { IERC20 } from "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/IERC20.sol";
 
 import { Errors, _require } from "./Errors.sol";
+import { PoolPriceOracle } from "./oracle/PoolPriceOracle.sol";
 
 interface AdapterLike {
     function scale() external returns (uint256);
 
-    function target() external returns (address);
+    function scaleStored() external view returns (uint256);
 
-    function symbol() external returns (string memory);
+    function target() external view returns (address);
 
-    function name() external returns (string memory);
+    function symbol() external view returns (string memory);
+
+    function name() external view returns (string memory);
+
+    function getUnderlyingPrice() external view returns (uint256);
 }
 
 /*
@@ -66,6 +70,9 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     /// @notice Minimum BPT we can have for this pool after initialization
     uint256 public constant MINIMUM_BPT = 1e6;
 
+    /// @notice Approx seconds per year to determine the ipmlied rate
+    uint256 public constant SECONDS_PER_YEAR = 31536000;
+
     /* ========== PUBLIC IMMUTABLES ========== */
 
     /// @notice Adapter address for the associated Series
@@ -87,7 +94,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     /// @dev Balancer pool id (as registered with the Balancer Vault)
     bytes32 internal immutable _poolId;
 
-    /// @dev Token registered at index PT for this pool
+    /// @dev Token registered at index 0 for this pool
     IERC20 internal immutable _token0;
 
     /// @dev Token registered at index one for this pool
@@ -315,7 +322,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         // Update oracle with upscaled reserves
         _updateOracle(
             request.lastChangeBlock, 
-            pTIn ? reservesTokenIn : reservesTokenOut, 
+            pTIn ? reservesTokenIn : reservesTokenOut,
             pTIn ? reservesTokenOut: reservesTokenIn
         );
 
@@ -382,12 +389,12 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         returns (uint256, uint256[] memory)
     {
         // Disambiguate reserves wrt token type
-        (uint256 principalReserves, uint256 targetReserves) = (reserves[pti], reserves[1 - pti]);
+        (uint256 pTReserves, uint256 targetReserves) = (reserves[pti], reserves[1 - pti]);
 
         uint256[] memory amountsIn = new uint256[](2);
 
         // If the pool has been initialized, but there aren't yet any PT in it
-        if (principalReserves == 0) {
+        if (pTReserves == 0) {
             uint256 reqTargetIn = reqAmountsIn[1 - pti];
             // Mint LP shares according to the relative amount of Target being offered
             uint256 bptToMint = BasicMath.mul(totalSupply(), reqTargetIn) / targetReserves;
@@ -398,22 +405,22 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             return (bptToMint, amountsIn);
         } else {
             // Disambiguate requested amounts wrt token type
-            (uint256 reqPrincipalIn, uint256 reqTargetIn) = (reqAmountsIn[pti], reqAmountsIn[1 - pti]);
+            (uint256 reqPTIn, uint256 reqTargetIn) = (reqAmountsIn[pti], reqAmountsIn[1 - pti]);
             // Caclulate the percentage of the pool we'd get if we pulled all of the requested Target in
             uint256 bptToMintTarget = BasicMath.mul(totalSupply(), reqTargetIn) / targetReserves;
 
             // Caclulate the percentage of the pool we'd get if we pulled all of the requested PT in
-            uint256 bptToMintPT = BasicMath.mul(totalSupply(), reqPrincipalIn) / principalReserves;
+            uint256 bptToMintPT = BasicMath.mul(totalSupply(), reqPTIn) / pTReserves;
 
             // Determine which amountIn is our limiting factor
             if (bptToMintTarget < bptToMintPT) {
-                amountsIn[pti] = BasicMath.mul(principalReserves, reqTargetIn) / targetReserves;
+                amountsIn[pti] = BasicMath.mul(pTReserves, reqTargetIn) / targetReserves;
                 amountsIn[1 - pti] = reqTargetIn;
 
                 return (bptToMintTarget, amountsIn);
             } else {
-                amountsIn[pti] = reqPrincipalIn;
-                amountsIn[1 - pti] = BasicMath.mul(targetReserves, reqPrincipalIn) / principalReserves;
+                amountsIn[pti] = reqPTIn;
+                amountsIn[1 - pti] = BasicMath.mul(targetReserves, reqPTIn) / pTReserves;
 
                 return (bptToMintPT, amountsIn);
             }
@@ -424,7 +431,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     /// @dev We round in favor of the LPs, meaning that traders get slightly worse prices than they would if we had full
     /// precision. However, the differences are small (on the order of 1e-11), and should only matter for very small trades.
     function _onSwap(
-        bool principalIn,
+        bool pTIn,
         bool givenIn,
         uint256 amountDelta,
         uint256 reservesTokenIn,
@@ -441,7 +448,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         uint256 t = ts.mulDown(ttm);
 
         // Full `t` with fees baked in
-        uint256 a = (principalIn ? g2 : g1).mulUp(t).complement();
+        uint256 a = (pTIn ? g2 : g1).mulUp(t).complement();
 
         // Pow up for `x1` & `y1` and down for `xOrY2` causes the pow induced error for `xOrYPost`
         // to tend towards higher values rather than lower.
@@ -490,9 +497,31 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             return 0;
         }
 
-        // Equation inspired by `WeightedMath.sol` in PR#1111 in the Balancer monorepo,
-        // which also needs to calculate fees based on growth in the invariant
-        uint256 growth = fullInvariant.divDown(timeOnlyInvariant);
+        // The formula to calculate fees due is:
+        //
+        // where:
+        //   `g` is the factor by which reserves have grown
+        //   `time-only invariant` = x^a + y^a
+        //   `realized invariant`  = (g*x)^a + (g*y)^a
+        //
+        //              /   realized invariant     \ ^ (1/a)
+        // `growth` =  |   ----------------------  |
+        //              \   time-only invariant    /
+        //
+        //
+        // This gets us the proportional growth of all token balances, or `growth`
+        //
+        // We can plug this into the following equation from `WeightedMath` in PR#1111 on the Balancer monorepo:
+        //
+        //             supply * protocol fee * (growth - 1)
+        //                 ---------------------------
+        //                          growth
+        // toMint = --------------------------------------
+        //              1 - protocol fee * (growth - 1)
+        //                ---------------------------
+        //                          growth
+
+        uint256 growth = fullInvariant.divDown(timeOnlyInvariant).powDown(FixedPoint.ONE.divDown(a));
         uint256 k = protocolSwapFeePercentage.mulDown(growth.sub(FixedPoint.ONE)).divDown(growth);
 
         return totalSupply().mulDown(k).divDown(k.complement());
@@ -548,23 +577,28 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         // The Target side of the pool must have at least 0.01 units of liquidity for us to collect a price sample
         // note: additional liquidity contraints may be enforced outside of this contract via the invariant TWAP
         if (oracleData.oracleEnabled && block.number > lastChangeBlock && balanceTarget >= 1e16) {
+            // Use equation (2) from the YieldSpace paper to calculate the the marginal rate from the reserves
+            uint256 impliedRate = balancePT.add(totalSupply())
+                .divDown(balanceTarget.mulDown(_initScale))
+                .sub(FixedPoint.ONE);
 
-            // Make a small pseudo swap to determine the instantaneous spot price
-            uint256 underlyingOut = _onSwap(
-                true, // PT in
-                true, // given in
-                1e12, // 1e12 PTs in
-                balancePT.add(totalSupply()), 
-                balanceTarget.mulDown(_initScale)
-            );
             // Cacluate the price of one PT in Target terms
-            uint256 pTPrice = underlyingOut.divDown(AdapterLike(adapter).scale()).divDown(1e12);
+            uint256 pTPriceInTarget = getPriceFromImpliedRate(impliedRate);
+
+            // Following Balancer's oracle conventions, get price of token 1 in terms of token 0 and
+            // and the price of one BPT in terms of token 0
+            //
+            // note: b/c reserves are upscaled coming into this function,
+            // price is already upscaled to 18 decimals, regardless of the decimals used for token 0 & 1
+            uint256 pairPrice = pti == 0 ? FixedPoint.ONE.divDown(pTPriceInTarget) : pTPriceInTarget;
 
             uint256 oracleUpdatedIndex = _processPriceData(
                 oracleData.oracleSampleInitialTimestamp,
                 oracleData.oracleIndex,
-                LogCompression.toLowResLog(pTPrice),
-                0, // BPT price TWAP is kept at `0` as it doesn't convey meaningful information in yieldspace
+                LogCompression.toLowResLog(pairPrice),
+                // We diverge from Balancer's defaults here by storing implied rate
+                // rather than BPT price in this second slot
+                LogCompression.toLowResLog(impliedRate),
                 int256(oracleData.logInvariant)
             );
 
@@ -580,6 +614,78 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     }
 
     /* ========== PUBLIC GETTERS ========== */
+
+    /// @notice Get the APY implied rate for PTs given a price in Target
+    function getImpliedRateFromPrice(uint256 pTPriceInTarget) public view returns (uint256 impliedRate) {
+        if (block.timestamp >= maturity) {
+            return 0;
+        }
+
+        impliedRate = FixedPoint.ONE
+            .divDown(pTPriceInTarget.mulDown(AdapterLike(adapter).scaleStored()))
+            .powDown(SECONDS_PER_YEAR.divDown(maturity - block.timestamp))
+            .sub(FixedPoint.ONE);
+    }
+
+    /// @notice Get price of PTs in Target terms given a price for PTs in Target
+    function getPriceFromImpliedRate(uint256 impliedRate) public view returns (uint256 pTPriceInTarget) {
+        if (block.timestamp >= maturity) {
+            return FixedPoint.ONE;
+        }
+
+        pTPriceInTarget = FixedPoint.ONE
+            .divDown(impliedRate.add(FixedPoint.ONE)
+            .powDown((maturity - block.timestamp)
+            .divDown(SECONDS_PER_YEAR)))
+            .divDown(AdapterLike(adapter).scaleStored());
+    }
+
+    /// @notice Get the "fair" price for the BPT tokens given a correct price for PTs
+    /// in terms of Target. i.e. the price of one BPT in terms of Target using reserves
+    /// as they would be if they accurately reflected the true PT price
+    /// @dev see the description here https://github.com/makerdao/univ2-lp-oracle/blob/master/src/UNIV2LPOracle.sol#L26
+    /// for a technical explanation of the concept
+    function getFairBPTPrice(uint256 ptTwapDuration)
+        public
+        view
+        returns (uint256 fairBptPriceInTarget)
+    {
+        OracleAverageQuery[] memory queries = new OracleAverageQuery[](1);
+        queries[0] = OracleAverageQuery({
+            variable: Variable.PAIR_PRICE,
+            secs: ptTwapDuration,
+            ago: 1 hours // take the oracle from 1 hour ago + ptTwapDuration ago to 1 hour ago
+        });
+
+        // TWAP read will revert with ORACLE_NOT_INITIALIZED if the buffer has not been filled
+        uint256[] memory results = this.getTimeWeightedAverage(queries);
+        uint256 pTPriceInTarget = pti == 1 ? results[0] : FixedPoint.ONE.divDown(results[0]);
+
+        uint256 impliedRate = getImpliedRateFromPrice(pTPriceInTarget);
+        (, uint256[] memory balances, ) = _vault.getPoolTokens(_poolId);
+
+        uint256 ttm = maturity > block.timestamp
+            ? uint256(maturity - block.timestamp) * FixedPoint.ONE
+            : 0;
+        uint256 a = ts.mulDown(ttm).complement();
+
+        uint256 k = balances[pti].add(totalSupply()).powDown(a).add(
+            balances[1 - pti].mulDown(_initScale).powDown(a)
+        );
+
+        // Equilibrium reserves for the PT side, w/o the final `- totalSupply` at the end
+        uint256 equilibriumPTReservesPartial = k.divDown(
+            FixedPoint.ONE.divDown(FixedPoint.ONE.add(impliedRate).powDown(a)).add(FixedPoint.ONE)
+        ).powDown(FixedPoint.ONE.divDown(a));
+
+        uint256 equilibriumTargetReserves = equilibriumPTReservesPartial
+            .divDown(_initScale.mulDown(FixedPoint.ONE.add(impliedRate)));
+
+        fairBptPriceInTarget = equilibriumTargetReserves
+            // Complete the equilibrium PT reserve calc
+            .add(equilibriumPTReservesPartial.sub(totalSupply())
+            .mulDown(pTPriceInTarget)).divDown(totalSupply());
+    }
 
     /// @notice Get token indices for PT and Target
     function getIndices() public view returns (uint256 _pti, uint256 _targeti) {

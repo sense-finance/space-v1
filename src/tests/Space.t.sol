@@ -15,7 +15,7 @@ import {Authentication} from "@balancer-labs/v2-solidity-utils/contracts/helpers
 import {IERC20} from "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/IERC20.sol";
 import {Authorizer} from "@balancer-labs/v2-vault/contracts/Authorizer.sol";
 import {FixedPoint} from "@balancer-labs/v2-solidity-utils/contracts/math/FixedPoint.sol";
-import {IPriceOracle} from "@balancer-labs/v2-pool-utils/contracts/interfaces/IPriceOracle.sol";
+import {IPriceOracle} from "../oracle/interfaces/IPriceOracle.sol";
 
 // Internal references
 import {SpaceFactory} from "../SpaceFactory.sol";
@@ -28,15 +28,24 @@ contract Test is DSTest {
         uint256 a,
         uint256 b,
         uint256 _tolerance
-    ) internal {
-        uint256 diff = a < b ? b - a : a - b;
-        if (diff > _tolerance) {
+    ) public {
+        bool _isClose = isClose(a, b, _tolerance);
+        if (!_isClose) {
             emit log("Error: abs(a, b) < tolerance not satisfied [uint]");
             emit log_named_uint("  Expected", b);
             emit log_named_uint("  Tolerance", _tolerance);
             emit log_named_uint("    Actual", a);
             fail();
         }
+    }
+
+    function isClose(
+        uint256 a,
+        uint256 b,
+        uint256 _tolerance
+    ) public view returns (bool) {
+        uint256 diff = a < b ? b - a : a - b;
+        return diff <= _tolerance;
     }
 
     function fuzzWithBounds(
@@ -86,7 +95,7 @@ contract SpaceTest is Test {
         adapter = new MockAdapterSpace(18);
 
         ts = FixedPoint.ONE.divDown(FixedPoint.ONE * 31622400); // 1 / 1 year in seconds
-        // 0.95 for selling underlying
+        // 0.95 for selling Target
         g1 = (FixedPoint.ONE * 950).divDown(FixedPoint.ONE * 1000);
         // 1 / 0.95 for selling PT
         g2 = (FixedPoint.ONE * 1000).divDown(FixedPoint.ONE * 950);
@@ -493,12 +502,6 @@ contract SpaceTest is Test {
             expectedFeesPaid += feeOnYield;
         }
 
-        emit log_named_uint(
-            "expectedFeesPaid",
-            (expectedFeesPaid * 0.1e18) / 1e18
-        );
-        return;
-
         // No additional BPT shares are minted for the controller until somebody joins or exits
         assertEq(
             space.balanceOf(address(protocolFeesCollector)),
@@ -520,19 +523,15 @@ contract SpaceTest is Test {
 
         emit log_named_uint("sam PTs", pt.balanceOf(address(sam)));
         emit log_named_uint("sam target", target.balanceOf(address(sam)));
-
-        // assertEq(pt.balanceOf(address(sam)), 0);
-        // assertEq(target.balanceOf(address(sam)), 0);
-
-        // emit log_named_uint("PT", pt.balanceOf(address(ava)));
-        // emit log_named_uint("target", target.balanceOf(address(ava)));
-
-        // emit log_named_uint("PT", pt.balanceOf(address(sid)));
-        // emit log_named_uint("target", target.balanceOf(address(sid)));
+        emit log_named_uint("expectedFeesPaid", expectedFeesPaid);
 
         // Sid has his entire iniital PT balance back
         assertEq(pt.balanceOf(address(sid)), 100e18);
-        // assertEq(target.balanceOf(address(sid), 100e18);
+
+        // Sid has lost Target from trading fees
+        assertLt(target.balanceOf(address(sid)), 100e18);
+
+        emit log_named_uint("lost", 100e18 - target.balanceOf(address(sid)));
 
         // assertEq(
         //     space.balanceOf(address(protocolFeesCollector)),
@@ -719,12 +718,25 @@ contract SpaceTest is Test {
         assertGt(targetOut2, targetOut1);
     }
 
-    function testOracle() public {
+    function testPairOracle() public {
+        adapter.setScale(1e18);
         vm.warp(0 hours);
         vm.roll(0);
 
-        jim.join(0, 10e18);
-        sid.swapIn(true, 2e18);
+        // Create a new space pool with no fees
+        spaceFactory.setParams(ts, FixedPoint.ONE, FixedPoint.ONE, true);
+        space = Space(spaceFactory.create(address(adapter), maturity / 2));
+
+        User tim = new User(vault, space, pt, target);
+        pt.mint(address(tim), INTIAL_USER_BALANCE);
+        target.mint(address(tim), INTIAL_USER_BALANCE);
+
+        User pam = new User(vault, space, pt, target);
+        pt.mint(address(pam), INTIAL_USER_BALANCE);
+        target.mint(address(pam), INTIAL_USER_BALANCE);
+
+        tim.join(0, 10e18);
+        pam.swapIn(true, 2e18);
 
         uint256 sampleTs;
         (, , , , , , sampleTs) = space.getSample(1);
@@ -734,7 +746,7 @@ contract SpaceTest is Test {
         // Establish the first price
         vm.warp(1 hours);
         vm.roll(1);
-        jim.join(1e18, 1e18);
+        tim.join(1e18, 1e18);
 
         (, , , , , , sampleTs) = space.getSample(1);
         assertEq(sampleTs, 1 hours);
@@ -743,11 +755,12 @@ contract SpaceTest is Test {
         vm.roll(2);
         // Tiny join so that the reserves when the TWAP is deteremined are similar to what they'll be
         // when we determine the instantaneous spot price
-        jim.join(1, 1);
+        tim.join(1, 1);
         (, , , , , , sampleTs) = space.getSample(2);
         assertEq(sampleTs, 2 hours);
 
-        uint256 targetOut = jim.swapIn(true, 1e12);
+        uint256 targetOut = tim.swapIn(true, 1e12);
+        // Pseudo swap to determine the instantaneous spot price
         uint256 pTInstSpotPrice = targetOut.divDown(1e12);
 
         uint256 twapPeriod = 1 hours;
@@ -759,13 +772,15 @@ contract SpaceTest is Test {
             ago: 0
         });
         uint256[] memory results = space.getTimeWeightedAverage(queries);
+        // Token order always the same for tests, PT in terms of Target
         uint256 pTPrice = results[0];
 
-        assertClose(pTPrice, pTInstSpotPrice, 1e14);
+        // Tolerance for swap induced imprecision
+        assertClose(pTPrice, pTInstSpotPrice, 6e14);
 
         vm.warp(20 hours);
         vm.roll(20);
-        jim.join(1, 1);
+        tim.join(1, 1);
         queries[0] = IPriceOracle.OracleAverageQuery({
             variable: IPriceOracle.Variable.PAIR_PRICE,
             secs: twapPeriod,
@@ -774,10 +789,11 @@ contract SpaceTest is Test {
         results = space.getTimeWeightedAverage(queries);
         pTPrice = results[0];
 
-        targetOut = jim.swapIn(true, 1e12);
+        targetOut = tim.swapIn(true, 1e12);
         pTInstSpotPrice = targetOut.divDown(1e12);
 
-        assertClose(pTPrice, pTInstSpotPrice, 1e14);
+        // Tolerance for swap induced imprecision
+        assertClose(pTPrice, pTInstSpotPrice, 6e14);
 
         twapPeriod = 22 hours;
         queries[0] = IPriceOracle.OracleAverageQuery({
@@ -793,29 +809,243 @@ contract SpaceTest is Test {
             assertEq(error, "BAL#312");
         }
 
-        for (uint256 i = 3; i < 1027; i++) {
+        for (uint256 i = 3; i < 23; i++) {
             vm.warp(i * 1 hours);
             vm.roll(i);
-            jim.join(1, 1);
+            tim.join(1, 1);
         }
 
-        (, , , , , , sampleTs) = space.getSample(1023);
-        assertEq(sampleTs, 1023 hours);
+        (, , , , , , sampleTs) = space.getSample(space.getTotalSamples() - 1);
+        assertEq(sampleTs, 19 hours);
 
-        for (uint256 i = 1027; i < 2050; i++) {
+        for (uint256 i = 23; i < 42; i++) {
             vm.warp(i * 1 hours);
             vm.roll(i);
-            jim.join(1, 1);
+            tim.join(1, 1);
         }
 
-        (, , , , , , sampleTs) = space.getSample(1023);
-        assertEq(sampleTs, 2047 hours);
+        (, , , , , , sampleTs) = space.getSample(space.getTotalSamples() - 1);
+        assertEq(sampleTs, 39 hours);
     }
 
-    // testJoinExactAmount
-    // testPoolFees
+    function testPairOracleNoSamples() public {
+        adapter.setScale(1e18);
+        vm.warp(0 hours);
+        vm.roll(0);
+
+        jim.join(0, 10e18);
+        sid.swapIn(true, 2e18);
+
+        // Establish the first price
+        vm.warp(1 hours);
+        vm.roll(1);
+        jim.join(1e18, 1e18);
+
+        uint256 twapPeriod = 1 hours;
+        IPriceOracle.OracleAverageQuery[]
+            memory queries = new IPriceOracle.OracleAverageQuery[](1);
+        queries[0] = IPriceOracle.OracleAverageQuery({
+            variable: IPriceOracle.Variable.PAIR_PRICE,
+            secs: twapPeriod,
+            ago: 0
+        });
+        uint256[] memory results = space.getTimeWeightedAverage(queries);
+
+        uint256 pTPricePre = results[0];
+
+        vm.warp(5 hours);
+
+        queries = new IPriceOracle.OracleAverageQuery[](1);
+        queries[0] = IPriceOracle.OracleAverageQuery({
+            variable: IPriceOracle.Variable.PAIR_PRICE,
+            secs: twapPeriod,
+            ago: 0
+        });
+        results = space.getTimeWeightedAverage(queries);
+
+        // Token order always the same for tests
+        uint256 pTPrice = results[0];
+
+        assertEq(pTPricePre, pTPrice);
+    }
+
+    function testImpliedRateFromPriceUtil() public {
+        adapter.setScale(1e18);
+        // Compare to implied rates calculated externally
+        assertClose(space.getImpliedRateFromPrice(0.5e18), 2984877898945961700, 1e14);
+        assertClose(space.getImpliedRateFromPrice(0.9e18), 233857315042038880, 1e14);
+        assertClose(space.getImpliedRateFromPrice(0.98e18), 41117876703261835, 1e14);
+
+        // Warp halfway through the term
+        vm.warp(7905600);
+        assertClose(space.getImpliedRateFromPrice(0.9e18), 522403873882749400, 1e14);
+        assertClose(space.getImpliedRateFromPrice(0.98e18), 83926433191108040, 1e14);
+
+        // Warp 7/8ths of the way through the term
+        vm.warp(13834800);
+        assertClose(space.getImpliedRateFromPrice(0.9e18), 4371796124019022000, 1e14);
+        assertClose(space.getImpliedRateFromPrice(0.98e18), 380381815250082860, 1e14);
+
+        vm.warp(maturity);
+        assertEq(space.getImpliedRateFromPrice(0.9e18), 0);
+
+        vm.warp(0);
+        // Try a different scale
+        adapter.setScale(2e18);
+        assertClose(space.getImpliedRateFromPrice(0.45e18), 233857315042038880, 1e14);
+    }
+
+    function testPriceFromImpliedRateUtil() public {
+        adapter.setScale(1e18);
+        assertClose(
+            space.getPriceFromImpliedRate(
+                space.getImpliedRateFromPrice(0.5e18)
+            ),
+            0.5e18,
+            1e14
+        );
+        assertClose(
+            space.getPriceFromImpliedRate(
+                space.getImpliedRateFromPrice(0.9e18)
+            ),
+            0.9e18,
+            1e14
+        );
+        assertClose(
+            space.getPriceFromImpliedRate(
+                space.getImpliedRateFromPrice(0.98e18)
+            ),
+            0.98e18,
+            1e14
+        );
+
+        vm.warp(7905600);
+        assertClose(
+            space.getPriceFromImpliedRate(
+                space.getImpliedRateFromPrice(0.9e18)
+            ),
+            0.9e18,
+            1e14
+        );
+        assertClose(
+            space.getPriceFromImpliedRate(
+                space.getImpliedRateFromPrice(0.98e18)
+            ),
+            0.98e18,
+            1e14
+        );
+
+        vm.warp(13834800);
+        assertClose(
+            space.getPriceFromImpliedRate(
+                space.getImpliedRateFromPrice(0.9e18)
+            ),
+            0.9e18,
+            1e14
+        );
+        assertClose(
+            space.getPriceFromImpliedRate(
+                space.getImpliedRateFromPrice(0.98e18)
+            ),
+            0.98e18,
+            1e14
+        );
+
+
+        vm.warp(maturity);
+        assertEq(space.getPriceFromImpliedRate(0.1e18), 1e18);
+
+        vm.warp(0);
+        adapter.setScale(2e18);
+        assertClose(
+            space.getPriceFromImpliedRate(
+                space.getImpliedRateFromPrice(0.45e18)
+            ),
+            0.45e18,
+            1e14
+        );
+    }
+
+    function testFairBptPrice() public {
+        adapter.setScale(1e18);
+        vm.warp(0 hours);
+        vm.roll(0);
+
+        jim.join(0, 10e18);
+        sid.swapIn(true, 2e18);
+
+        // Will fail with an invalid seconds query if the oracle isn't ready
+        try space.getFairBPTPrice(1 hours) {
+            fail();
+        } catch Error(string memory error) {
+            assertEq(error, "BAL#312");
+        }
+
+        // Establish the first price
+        vm.warp(1 hours);
+        vm.roll(1);
+        jim.join(1e18, 1e18);
+
+        // Establish the second price
+        vm.warp(2 hours);
+        vm.roll(2);
+        jim.join(1e18, 1e18);
+
+        IPriceOracle.OracleAverageQuery[]
+            memory queries = new IPriceOracle.OracleAverageQuery[](1);
+        queries[0] = IPriceOracle.OracleAverageQuery({
+            variable: IPriceOracle.Variable.PAIR_PRICE,
+            secs: 1 hours,
+            ago: 120
+        });
+        uint256[] memory results = space.getTimeWeightedAverage(queries);
+        uint256 fairPTPriceInTarget1 = results[0];
+
+        uint256 theoFairBptValue1 = space.getFairBPTPrice(10 minutes);
+        (, uint256[] memory balances, ) = vault.getPoolTokens(
+            space.getPoolId()
+        );
+
+        // The BPT value using the safe price and the spot reserves
+        uint256 spotBptValueFairPrice1 = balances[space.pti()]
+            .mulDown(fairPTPriceInTarget1)
+            .add(balances[1 - space.pti()])
+            .divDown(space.totalSupply());
+
+        // Since the oracle price and the current spot price are the same, 
+        // they fair equilibrium BPT price should be very close the actual spot BPT price
+        assertClose(spotBptValueFairPrice1, theoFairBptValue1, 1e14);
+
+
+        // Swapping in within the same block as the last join won't update the oracle 
+        // (max of one price stored per block), 
+        // but it will update the spot reserves
+        sid.swapIn(true, 2e18);
+
+        queries = new IPriceOracle.OracleAverageQuery[](1);
+        queries[0] = IPriceOracle.OracleAverageQuery({
+            variable: IPriceOracle.Variable.PAIR_PRICE,
+            secs: 1 hours,
+            ago: 120
+        });
+        results = space.getTimeWeightedAverage(queries);
+        uint256 fairPTPriceInTarget2 = results[0];
+
+        assertEq(fairPTPriceInTarget1, fairPTPriceInTarget2);
+
+        uint256 theoFairBptValue2 = space.getFairBPTPrice(10 minutes);
+        // So the theoretical BPT equilibrium price has not changed much
+        assertClose(theoFairBptValue1, theoFairBptValue2, 2e15);
+        // Whereas the spot value fair price is notably different
+        (, balances, ) = vault.getPoolTokens(
+            space.getPoolId()
+        );
+        uint256 spotBptValueFairPrice2 = balances[space.pti()]
+            .mulDown(fairPTPriceInTarget1)
+            .add(balances[1 - space.pti()])
+            .divDown(space.totalSupply());
+        assertTrue(!isClose(spotBptValueFairPrice1, spotBptValueFairPrice2, 9e15));
+    }
+
     // testPriceNeverAboveOne
-    // testFuzzScaleValues
-    // testYSInvariant
-    // testTimeshift
 }
