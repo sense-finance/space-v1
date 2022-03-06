@@ -71,7 +71,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     uint256 public constant MINIMUM_BPT = 1e6;
 
     /// @notice Approx seconds per year to determine the ipmlied rate
-    uint256 public constant SECONDS_PER_YEAR = 31540000;
+    uint256 public constant SECONDS_PER_YEAR = 31536000;
 
     /* ========== PUBLIC IMMUTABLES ========== */
 
@@ -577,39 +577,28 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         // The Target side of the pool must have at least 0.01 units of liquidity for us to collect a price sample
         // note: additional liquidity contraints may be enforced outside of this contract via the invariant TWAP
         if (oracleData.oracleEnabled && block.number > lastChangeBlock && balanceTarget >= 1e16) {
+            // Use equation (2) from the YieldSpace paper to calculate the the marginal rate from the reserves
+            uint256 impliedRate = balancePT.add(totalSupply())
+                .divDown(balanceTarget.mulDown(_initScale))
+                .sub(FixedPoint.ONE);
 
-            // Make a small pseudo swap to determine the instantaneous spot price
-            uint256 underlyingOut = _onSwap(
-                true, // PT in
-                true, // given in
-                1e12, // 1e12 PTs in
-                balancePT.add(totalSupply()),
-                balanceTarget.mulDown(_initScale)
-            );
             // Cacluate the price of one PT in Target terms
-            uint256 pTPriceInTarget = underlyingOut.divDown(AdapterLike(adapter).scale()).divDown(1e12);
+            uint256 pTPriceInTarget = getPriceFromImpliedRate(impliedRate);
+
             // Following Balancer's oracle conventions, get price of token 1 in terms of token 0 and
             // and the price of one BPT in terms of token 0
             //
             // note: b/c reserves are upscaled coming into this function,
             // price is already upscaled to 18 decimals, regardless of the decimals used for token 0 & 1
-            uint256 pairPrice;
-            uint256 bptPrice;
-            if (pti == 0) {
-                // PT terms
-                pairPrice = FixedPoint.ONE.divDown(pTPriceInTarget);
-                bptPrice = balancePT.divDown(totalSupply()) + balanceTarget.divDown(totalSupply()).mulDown(pairPrice);
-            } else {
-                // Target terms
-                pairPrice = pTPriceInTarget;
-                bptPrice = balancePT.divDown(totalSupply()).mulDown(pairPrice) + balanceTarget.divDown(totalSupply());
-            }
+            uint256 pairPrice = pti == 0 ? FixedPoint.ONE.divDown(pTPriceInTarget) : pTPriceInTarget;
 
             uint256 oracleUpdatedIndex = _processPriceData(
                 oracleData.oracleSampleInitialTimestamp,
                 oracleData.oracleIndex,
                 LogCompression.toLowResLog(pairPrice),
-                LogCompression.toLowResLog(bptPrice),
+                // We diverge from Balancer's defaults here by storing implied rate
+                // rather than BPT price in this second slot
+                LogCompression.toLowResLog(impliedRate),
                 int256(oracleData.logInvariant)
             );
 
@@ -653,7 +642,9 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
 
     /// @notice Get the "fair" price for the BPT tokens given a correct price for PTs
     /// in terms of Target. i.e. the price of one BPT in terms of Target using reserves
-    /// as they would be if they accurately reflected the true PT pric
+    /// as they would be if they accurately reflected the true PT price
+    /// @dev see the description here https://github.com/makerdao/univ2-lp-oracle/blob/master/src/UNIV2LPOracle.sol#L26
+    /// for a technical explanation of the concept
     function getFairBPTPrice(uint256 ptTwapDuration)
         public
         view
@@ -676,8 +667,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         uint256 ttm = maturity > block.timestamp
             ? uint256(maturity - block.timestamp) * FixedPoint.ONE
             : 0;
-        uint256 t = ts.mulDown(ttm);
-        uint256 a = t.complement();
+        uint256 a = ts.mulDown(ttm).complement();
 
         uint256 k = balances[pti].add(totalSupply()).powDown(a).add(
             balances[1 - pti].mulDown(_initScale).powDown(a)

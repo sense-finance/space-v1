@@ -76,7 +76,7 @@ contract SpaceFactoryTest is DSTest {
         try spaceFactory.create(address(adapter), maturity1) {
             fail();
         } catch Error(string memory error) {
-            assertEq(error, Errors.POOL_ALREADY_EXISTS);
+            assertEq(error, Errors.POOL_ALREADY_DEPLOYED);
         }
     }
 

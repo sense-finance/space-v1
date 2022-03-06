@@ -719,11 +719,24 @@ contract SpaceTest is Test {
     }
 
     function testPairOracle() public {
+        adapter.setScale(1e18);
         vm.warp(0 hours);
         vm.roll(0);
 
-        jim.join(0, 10e18);
-        sid.swapIn(true, 2e18);
+        // Create a new space pool with no fees
+        spaceFactory.setParams(ts, FixedPoint.ONE, FixedPoint.ONE, true);
+        space = Space(spaceFactory.create(address(adapter), maturity / 2));
+
+        User tim = new User(vault, space, pt, target);
+        pt.mint(address(tim), INTIAL_USER_BALANCE);
+        target.mint(address(tim), INTIAL_USER_BALANCE);
+
+        User pam = new User(vault, space, pt, target);
+        pt.mint(address(pam), INTIAL_USER_BALANCE);
+        target.mint(address(pam), INTIAL_USER_BALANCE);
+
+        tim.join(0, 10e18);
+        pam.swapIn(true, 2e18);
 
         uint256 sampleTs;
         (, , , , , , sampleTs) = space.getSample(1);
@@ -733,7 +746,7 @@ contract SpaceTest is Test {
         // Establish the first price
         vm.warp(1 hours);
         vm.roll(1);
-        jim.join(1e18, 1e18);
+        tim.join(1e18, 1e18);
 
         (, , , , , , sampleTs) = space.getSample(1);
         assertEq(sampleTs, 1 hours);
@@ -742,11 +755,12 @@ contract SpaceTest is Test {
         vm.roll(2);
         // Tiny join so that the reserves when the TWAP is deteremined are similar to what they'll be
         // when we determine the instantaneous spot price
-        jim.join(1, 1);
+        tim.join(1, 1);
         (, , , , , , sampleTs) = space.getSample(2);
         assertEq(sampleTs, 2 hours);
 
-        uint256 targetOut = jim.swapIn(true, 1e12);
+        uint256 targetOut = tim.swapIn(true, 1e12);
+        // Pseudo swap to determine the instantaneous spot price
         uint256 pTInstSpotPrice = targetOut.divDown(1e12);
 
         uint256 twapPeriod = 1 hours;
@@ -761,11 +775,12 @@ contract SpaceTest is Test {
         // Token order always the same for tests, PT in terms of Target
         uint256 pTPrice = results[0];
 
-        assertClose(pTPrice, pTInstSpotPrice, 1e14);
+        // Tolerance for swap induced imprecision
+        assertClose(pTPrice, pTInstSpotPrice, 6e14);
 
         vm.warp(20 hours);
         vm.roll(20);
-        jim.join(1, 1);
+        tim.join(1, 1);
         queries[0] = IPriceOracle.OracleAverageQuery({
             variable: IPriceOracle.Variable.PAIR_PRICE,
             secs: twapPeriod,
@@ -774,10 +789,11 @@ contract SpaceTest is Test {
         results = space.getTimeWeightedAverage(queries);
         pTPrice = results[0];
 
-        targetOut = jim.swapIn(true, 1e12);
+        targetOut = tim.swapIn(true, 1e12);
         pTInstSpotPrice = targetOut.divDown(1e12);
 
-        assertClose(pTPrice, pTInstSpotPrice, 1e14);
+        // Tolerance for swap induced imprecision
+        assertClose(pTPrice, pTInstSpotPrice, 6e14);
 
         twapPeriod = 22 hours;
         queries[0] = IPriceOracle.OracleAverageQuery({
@@ -796,7 +812,7 @@ contract SpaceTest is Test {
         for (uint256 i = 3; i < 1027; i++) {
             vm.warp(i * 1 hours);
             vm.roll(i);
-            jim.join(1, 1);
+            tim.join(1, 1);
         }
 
         (, , , , , , sampleTs) = space.getSample(1023);
@@ -805,7 +821,7 @@ contract SpaceTest is Test {
         for (uint256 i = 1027; i < 2050; i++) {
             vm.warp(i * 1 hours);
             vm.roll(i);
-            jim.join(1, 1);
+            tim.join(1, 1);
         }
 
         (, , , , , , sampleTs) = space.getSample(1023);
@@ -813,6 +829,7 @@ contract SpaceTest is Test {
     }
 
     function testPairOracleNoSamples() public {
+        adapter.setScale(1e18);
         vm.warp(0 hours);
         vm.roll(0);
 
@@ -855,7 +872,7 @@ contract SpaceTest is Test {
     function testImpliedRateFromPriceUtil() public {
         adapter.setScale(1e18);
         // Compare to implied rates calculated externally
-        assertClose(space.getImpliedRateFromPrice(0.5e18), 2985577898945961700, 1e14);
+        assertClose(space.getImpliedRateFromPrice(0.5e18), 2984877898945961700, 1e14);
         assertClose(space.getImpliedRateFromPrice(0.9e18), 233857315042038880, 1e14);
         assertClose(space.getImpliedRateFromPrice(0.98e18), 41117876703261835, 1e14);
 
@@ -866,7 +883,7 @@ contract SpaceTest is Test {
 
         // Warp 7/8ths of the way through the term
         vm.warp(13834800);
-        assertClose(space.getImpliedRateFromPrice(0.9e18), 4372996124019022000, 1e14);
+        assertClose(space.getImpliedRateFromPrice(0.9e18), 4371796124019022000, 1e14);
         assertClose(space.getImpliedRateFromPrice(0.98e18), 380381815250082860, 1e14);
 
         vm.warp(maturity);
