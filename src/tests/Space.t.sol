@@ -15,7 +15,7 @@ import {Authentication} from "@balancer-labs/v2-solidity-utils/contracts/helpers
 import {IERC20} from "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/IERC20.sol";
 import {Authorizer} from "@balancer-labs/v2-vault/contracts/Authorizer.sol";
 import {FixedPoint} from "@balancer-labs/v2-solidity-utils/contracts/math/FixedPoint.sol";
-import {IPriceOracle} from "@balancer-labs/v2-pool-utils/contracts/interfaces/IPriceOracle.sol";
+import {IPriceOracle} from "../oracle/interfaces/IPriceOracle.sol";
 
 // Internal references
 import {SpaceFactory} from "../SpaceFactory.sol";
