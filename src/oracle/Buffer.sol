@@ -17,9 +17,9 @@
 pragma solidity ^0.7.0;
 
 library Buffer {
-    // The buffer is a circular storage structure with 1024 slots.
+    // The buffer is a circular storage structure with 20 slots.
     // solhint-disable-next-line private-vars-leading-underscore
-    uint256 internal constant SIZE = 1024;
+    uint256 internal constant SIZE = 20;
 
     /**
      * @dev Returns the index of the element before the one pointed by `index`.

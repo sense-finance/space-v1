@@ -809,23 +809,23 @@ contract SpaceTest is Test {
             assertEq(error, "BAL#312");
         }
 
-        for (uint256 i = 3; i < 1027; i++) {
+        for (uint256 i = 3; i < 23; i++) {
             vm.warp(i * 1 hours);
             vm.roll(i);
             tim.join(1, 1);
         }
 
-        (, , , , , , sampleTs) = space.getSample(1023);
-        assertEq(sampleTs, 1023 hours);
+        (, , , , , , sampleTs) = space.getSample(space.getTotalSamples() - 1);
+        assertEq(sampleTs, 19 hours);
 
-        for (uint256 i = 1027; i < 2050; i++) {
+        for (uint256 i = 23; i < 42; i++) {
             vm.warp(i * 1 hours);
             vm.roll(i);
             tim.join(1, 1);
         }
 
-        (, , , , , , sampleTs) = space.getSample(1023);
-        assertEq(sampleTs, 2047 hours);
+        (, , , , , , sampleTs) = space.getSample(space.getTotalSamples() - 1);
+        assertEq(sampleTs, 39 hours);
     }
 
     function testPairOracleNoSamples() public {

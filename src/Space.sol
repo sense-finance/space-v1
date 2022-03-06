@@ -654,7 +654,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         queries[0] = OracleAverageQuery({
             variable: Variable.PAIR_PRICE,
             secs: ptTwapDuration,
-            ago: 120 // take the oracle from 2 mins ago + ptTwapDuration ago to 2 mins ago
+            ago: 1 hours // take the oracle from 1 hour ago + ptTwapDuration ago to 1 hour ago
         });
 
         // TWAP read will revert with ORACLE_NOT_INITIALIZED if the buffer has not been filled

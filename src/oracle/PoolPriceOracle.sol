@@ -29,10 +29,10 @@ import "./QueryProcessor.sol";
 /**
  * @dev This module allows Pools to access historical pricing information.
  *
- * It uses a 1024 long circular buffer to store past data, where the data within each sample is the result of
+ * It uses a 20 long circular buffer to store past data, where the data within each sample is the result of
  * accumulating live data for no more than two minutes. Therefore, assuming the worst case scenario where new data is
  * updated in every single block, the oldest samples in the buffer (and therefore largest queryable period) will
- * be slightly over 34 hours old.
+ * be slightly over 6.5 hours old.
  *
  * Usage of this module requires the caller to keep track of two variables: the latest circular buffer index, and the
  * timestamp when the index last changed. Aditionally, access to the latest circular buffer index must be exposed by
@@ -44,10 +44,10 @@ abstract contract PoolPriceOracle is IPoolPriceOracle, IPriceOracle {
     using Buffer for uint256;
     using Samples for bytes32;
 
-    // Each sample in the buffer accumulates information for up to 2 minutes. This is simply to reduce the size of the
+    // Each sample in the buffer accumulates information for up to 20 minutes. This is simply to reduce the size of the
     // buffer: small time deviations will not have any significant effect.
     // solhint-disable not-rely-on-time
-    uint256 private constant _MAX_SAMPLE_DURATION = 2 minutes;
+    uint256 private constant _MAX_SAMPLE_DURATION = 20 minutes;
 
     // We use a mapping to simulate an array: the buffer won't grow or shrink, and since we will always use valid
     // indexes using a mapping saves gas by skipping the bounds checks.
@@ -101,7 +101,7 @@ abstract contract PoolPriceOracle is IPoolPriceOracle, IPriceOracle {
     // IPriceOracle
 
     function getLargestSafeQueryWindow() external pure override returns (uint256) {
-        return 34 hours;
+        return 6.5 hours;
     }
 
     function getLatest(Variable variable) external view override returns (uint256) {
