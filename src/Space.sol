@@ -653,7 +653,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
 
     /// @notice Get the "fair" price for the BPT tokens given a correct price for PTs
     /// in terms of Target. i.e. the price of one BPT in terms of Target using reserves
-    /// as they would be if they accurately reflected the passed in PT price
+    /// as they would be if they accurately reflected the true PT pric
     function getFairBPTPrice(uint256 ptTwapDuration)
         public
         view
