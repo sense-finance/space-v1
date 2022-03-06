@@ -598,7 +598,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
                 LogCompression.toLowResLog(pairPrice),
                 // We diverge from Balancer's defaults here by storing implied rate
                 // rather than BPT price in this second slot
-                LogCompression.toLowResLog(impliedRate),
+                impliedRate < 1e6 ? LogCompression.toLowResLog(1e6) : LogCompression.toLowResLog(impliedRate),
                 int256(oracleData.logInvariant)
             );
 
