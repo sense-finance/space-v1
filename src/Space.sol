@@ -626,6 +626,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
 
     /* ========== PUBLIC GETTERS ========== */
 
+    /// @notice Get the APY implied rate for PTs given a price in Target
     function getImpliedRateFromPrice(uint256 pTPriceInTarget) public view returns (uint256 impliedRate) {
         if (block.timestamp >= maturity) {
             return 0;
@@ -637,6 +638,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             .sub(FixedPoint.ONE);
     }
 
+    /// @notice Get price of PTs in Target terms given a price for PTs in Target
     function getPriceFromImpliedRate(uint256 impliedRate) public view returns (uint256 pTPriceInTarget) {
         if (block.timestamp >= maturity) {
             return FixedPoint.ONE;
@@ -649,6 +651,9 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             .divDown(AdapterLike(adapter).scaleStored());
     }
 
+    /// @notice Get the "fair" price for the BPT tokens given a correct price for PTs
+    /// in terms of Target. i.e. the price of one BPT in terms of Target using reserves
+    /// as they would be if they accurately reflected the passed in PT price
     function getFairBPTPrice(uint256 ptTwapDuration)
         public
         view
