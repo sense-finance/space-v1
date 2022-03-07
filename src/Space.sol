@@ -193,7 +193,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             uint256 initScale = AdapterLike(adapter).scale();
 
             // Convert target balance into Underlying
-            // note: We assume scale values will always be 18 decimals
+            // note We assume scale values will always be 18 decimals
             uint256 underlyingIn = reqAmountsIn[1 - pti].mulDown(initScale);
 
             // Just like weighted pool 2 token from the balancer v2 monorepo,
@@ -575,7 +575,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         uint256 balanceTarget
     ) internal {
         // The Target side of the pool must have at least 0.01 units of liquidity for us to collect a price sample
-        // note: additional liquidity contraints may be enforced outside of this contract via the invariant TWAP
+        // note additional liquidity contraints may be enforced outside of this contract via the invariant TWAP
         if (oracleData.oracleEnabled && block.number > lastChangeBlock && balanceTarget >= 1e16) {
             // Use equation (2) from the YieldSpace paper to calculate the the marginal rate from the reserves
             uint256 impliedRate = balancePT.add(totalSupply())
@@ -588,7 +588,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             // Following Balancer's oracle conventions, get price of token 1 in terms of token 0 and
             // and the price of one BPT in terms of token 0
             //
-            // note: b/c reserves are upscaled coming into this function,
+            // note b/c reserves are upscaled coming into this function,
             // price is already upscaled to 18 decimals, regardless of the decimals used for token 0 & 1
             uint256 pairPrice = pti == 0 ? FixedPoint.ONE.divDown(pTPriceInTarget) : pTPriceInTarget;
 
@@ -598,6 +598,10 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
                 LogCompression.toLowResLog(pairPrice),
                 // We diverge from Balancer's defaults here by storing implied rate
                 // rather than BPT price in this second slot
+                //
+                // Also note implied rates of less than 1e6 are taken as 1e6, b/c:
+                //     1) `toLowResLog` fails for 0 and 1e6 is precise enough for our needs
+                //     2) 1e6 is the lowest value Balancer passes into this util (min for totalSupply())
                 impliedRate < 1e6 ? LogCompression.toLowResLog(1e6) : LogCompression.toLowResLog(impliedRate),
                 int256(oracleData.logInvariant)
             );
