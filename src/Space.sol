@@ -15,7 +15,6 @@ import { IERC20 } from "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/
 
 import { Errors, _require } from "./Errors.sol";
 import { PoolPriceOracle } from "./oracle/PoolPriceOracle.sol";
-import {DSTest} from "@sense-finance/v1-core/src/tests/test-helpers/DSTest.sol";
 
 interface AdapterLike {
     function scale() external returns (uint256);
@@ -54,7 +53,7 @@ interface AdapterLike {
 /// conforms to Balancer's own style, and we're using several Balancer functions that play nicer if we do.
 /// @dev Requires an external "Adapter" contract with a `scale()` function which returns the
 /// current exchange rate from Target to the Underlying asset.
-contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTest {
+contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     using FixedPoint for uint256;
 
     /* ========== STRUCTURES ========== */
