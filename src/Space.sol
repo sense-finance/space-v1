@@ -289,7 +289,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         // Even though we are sending tokens to the user, we round the amounts out *up* here, b/c:
         //     1) Maximizing the number of tokens users get when exiting maximizes the
         //        number of BPT we mint for users joining afterwards (it maximizes the equation 
-        //        totalSupply * amtIn / reserves). As a result, we esure that the numerator is greater than 
+        //        totalSupply * amtIn / reserves). As a result, we ensure that the numerator is greater than 
         //        the denominator in the "marginal rate equation" (eq. 2) from the YS papaer
         //     2) We lock MINIMUM_BPT away at initialization, which means a number of reserves will
         //        remain untouched and will function as a buffer for "off by one" rounding errors
