@@ -192,7 +192,7 @@ contract SpaceTest is Test {
         // Can successfully swap PT in
         uint256 targetOt = jim.swapIn(true);
         // Fixed amount in, variable amount out
-        // Calculated externally
+        // Calculated externally by solving the YS invariant
         uint256 expectedTargetOut = 608137287845597896;
 
         // Swapped one PT in
@@ -305,7 +305,8 @@ contract SpaceTest is Test {
             // 1 PT in
             uint256 _tOut = sid.swapIn(true);
 
-            // A PT -> Target swap gives more Target as fees accrue after the PT reserves side has returned to 0
+            // A PT to Target swap gives more Target as fees accrue after the
+            // PT reserves side has returned to 0
             assertGt(_tOut, tOut);
             tOut = _tOut;
 
@@ -316,8 +317,8 @@ contract SpaceTest is Test {
         vm.roll(2);
         jim.exit(space.balanceOf(address(jim)));
         // Jim ends up with more Target and PTs
-        assertGt(target.balanceOf(address(jim), INTIAL_USER_BALANCE);
-        assertGt(pt.balanceOf(address(jim), INTIAL_USER_BALANCE);
+        assertGt(target.balanceOf(address(jim)), INTIAL_USER_BALANCE);
+        assertGt(pt.balanceOf(address(jim)), INTIAL_USER_BALANCE);
         vm.roll(3);
     }
 
