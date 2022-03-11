@@ -243,7 +243,7 @@ contract SpaceTest is Test {
         uint256 ptsIn = jim.swapOut(true, 0.1e18);
         // Fixed amount out, variable amount in
         // Calculated externally
-        uint256 expectedPTIn = 116115076934419786; // around 0.10556
+        uint256 expectedPTIn = 116115076934419786; // around 0.11612
 
         // Received 0.1 Target
         assertEq(target.balanceOf(address(jim)), 99e18 + 0.1e18);
@@ -270,11 +270,25 @@ contract SpaceTest is Test {
         vm.roll(1);
         // Complete exit leaving only min bpt in pool
         jim.exit(space.balanceOf(address(jim)));
+        uint256 preSupply = space.totalSupply();
+        assertEq(preSupply, space.MINIMUM_BPT());
+        // Check Target reserves
+        (, uint256[] memory balances, ) = vault.getPoolTokens(
+            space.getPoolId()
+        );
+        assertEq(balances[1 - space.pti()], space.MINIMUM_BPT().divDown(INIT_SCALE));
         vm.roll(2);
 
         // Join uses ratio of totalSupply() / target reserves, which is small here
         // so the join will be affected heavily by the rounding from the exit
-        jim.join(50e18, 50e18);
+        uint256 TARGET_IN = 50e18;
+        sid.join(0, TARGET_IN);
+        uint256 joinedTargetInUnderlying = TARGET_IN.mulDown(INIT_SCALE);
+        uint256 postSupply = space.totalSupply();
+
+        assertGt(postSupply, preSupply + joinedTargetInUnderlying);
+        assertTrue(!isClose(postSupply, preSupply + joinedTargetInUnderlying, 1e12));
+
         vm.roll(3);
         sid.swapIn(true, 20e18);
     }
@@ -291,7 +305,7 @@ contract SpaceTest is Test {
             // 1 PT in
             uint256 _tOut = sid.swapIn(true);
 
-            // PTs get more Target as fees accrue after the PT reserves side has returned to 0
+            // A PT -> Target swap gives more Target as fees accrue after the PT reserves side has returned to 0
             assertGt(_tOut, tOut);
             tOut = _tOut;
 
@@ -301,6 +315,9 @@ contract SpaceTest is Test {
 
         vm.roll(2);
         jim.exit(space.balanceOf(address(jim)));
+        // Jim ends up with more Target and PTs
+        assertGt(target.balanceOf(address(jim), INTIAL_USER_BALANCE);
+        assertGt(pt.balanceOf(address(jim), INTIAL_USER_BALANCE);
         vm.roll(3);
     }
 
