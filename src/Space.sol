@@ -15,6 +15,7 @@ import { IERC20 } from "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/
 
 import { Errors, _require } from "./Errors.sol";
 import { PoolPriceOracle } from "./oracle/PoolPriceOracle.sol";
+import {DSTest} from "@sense-finance/v1-core/src/tests/test-helpers/DSTest.sol";
 
 interface AdapterLike {
     function scale() external returns (uint256);
@@ -53,7 +54,7 @@ interface AdapterLike {
 /// conforms to Balancer's own style, and we're using several Balancer functions that play nicer if we do.
 /// @dev Requires an external "Adapter" contract with a `scale()` function which returns the
 /// current exchange rate from Target to the Underlying asset.
-contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
+contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle, DSTest {
     using FixedPoint for uint256;
 
     /* ========== STRUCTURES ========== */
@@ -260,7 +261,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     function onExitPool(
         bytes32 poolId,
         address sender,
-        address, /* _recipient */
+        address, /* recipient */
         uint256[] memory reserves,
         uint256 lastChangeBlock,
         uint256 protocolSwapFeePercentage,
@@ -282,12 +283,19 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
 
         // Determine what percentage of the pool the BPT being passed in represents
         uint256 bptAmountIn = abi.decode(userData, (uint256));
-        uint256 pctPool = bptAmountIn.divDown(totalSupply());
+        uint256 pctPool = bptAmountIn.divUp(totalSupply());
 
         // Calculate the amount of tokens owed in return for giving that amount of BPT in
         uint256[] memory amountsOut = new uint256[](2);
-        amountsOut[0] = reserves[0].mulDown(pctPool);
-        amountsOut[1] = reserves[1].mulDown(pctPool);
+        // Even though we are sending tokens to the user, we round the amounts out *up* here, b/c:
+        //     1) Maximizing the number of tokens users get when exiting maximizes the
+        //        number of BPT we mint for users joining afterwards (it maximizes the equation 
+        //        totalSupply * amtIn / reserves). As a result, we esure that the numerator is greater than 
+        //        the denominator in the "marginal rate equation" (eq. 2) from the YS papaer
+        //     2) We lock MINIMUM_BPT away at initialization, which means a number of reserves will
+        //        remain untouched and will function as a buffer for "off by one" rounding errors
+        amountsOut[0] = reserves[0].mulUp(pctPool);
+        amountsOut[1] = reserves[1].mulUp(pctPool);
 
         // Amounts are leaving the Pool, so we round down
         _downscaleDownArray(amountsOut);
@@ -453,7 +461,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         // Pow up for `x1` & `y1` and down for `xOrY2` causes the pow induced error for `xOrYPost`
         // to tend towards higher values rather than lower.
         // Effectively we're adding a little bump up for ammountIn, and down for amountOut
-
+        //
         // x1 = xPre ^ a; y1 = yPre ^ a
         uint256 x1 = reservesTokenIn.powUp(a);
         uint256 y1 = reservesTokenOut.powUp(a);
@@ -462,7 +470,8 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         //
         // No overflow risk in the addition as Balancer will only allow an `amountDelta` for tokens coming in
         // if the user actually has it, and the max token supply for well-behaved tokens is bounded by the uint256 type
-        uint256 xOrY2 = (givenIn ? reservesTokenIn + amountDelta : reservesTokenOut.sub(amountDelta)).powDown(a);
+        uint256 newReservesTokenInOrOut = givenIn ? reservesTokenIn + amountDelta : reservesTokenOut.sub(amountDelta);
+        uint256 xOrY2 = newReservesTokenInOrOut.powDown(a);
 
         // x1 + y1 = xOrY2 + xOrYPost ^ a
         // -> xOrYPost ^ a = x1 + y1 - x2
@@ -470,8 +479,28 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         uint256 xOrYPost = (x1.add(y1).sub(xOrY2)).powUp(FixedPoint.ONE.divDown(a));
         _require(!givenIn || reservesTokenOut > xOrYPost, Errors.SWAP_TOO_SMALL);
 
-        // amountOut = yPre - yPost; amountIn = xPost - xPre
-        return givenIn ? reservesTokenOut.sub(xOrYPost) : xOrYPost.sub(reservesTokenIn);
+        if (givenIn) {
+            // Check that PT reserves are greater than "Underlying" reserves per section 6.3 of the YS paper
+            _require(
+                pTIn ?
+                newReservesTokenInOrOut >= xOrYPost :
+                newReservesTokenInOrOut <= xOrYPost,
+                Errors.NEGATIVE_RATE
+            );
+
+            // amountOut = yPre - yPost
+            return reservesTokenOut.sub(xOrYPost);
+        } else {
+            _require(
+                pTIn ?
+                xOrYPost >= newReservesTokenInOrOut :
+                xOrYPost <= newReservesTokenInOrOut,
+                Errors.NEGATIVE_RATE
+            );
+
+            // amountIn = xPost - xPre
+            return xOrYPost.sub(reservesTokenIn);
+        }
     }
 
     /* ========== PROTOCOL FEE HELPERS ========== */

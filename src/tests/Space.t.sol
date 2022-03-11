@@ -64,6 +64,7 @@ contract SpaceTest is Test {
     IWETH internal constant weth =
         IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
     uint256 public constant INTIAL_USER_BALANCE = 100e18;
+    uint256 public constant INIT_SCALE = 1.1e18;
 
     Vault internal vault;
     Space internal space;
@@ -93,6 +94,7 @@ contract SpaceTest is Test {
         // Create mocks
         divider = new MockDividerSpace(18);
         adapter = new MockAdapterSpace(18);
+        adapter.setScale(INIT_SCALE);
 
         ts = FixedPoint.ONE.divDown(FixedPoint.ONE * 31622400); // 1 / 1 year in seconds
         // 0.95 for selling Target
@@ -153,7 +155,7 @@ contract SpaceTest is Test {
 
         // and it minted jim's account BPT tokens equal to the value of underlying
         // deposited (inital scale is 1e18, so it's one-to-one)
-        assertClose(space.balanceOf(address(jim)), 1e18, 1e6);
+        assertClose(space.balanceOf(address(jim)), uint256(1e18).mulDown(INIT_SCALE), 1e6);
 
         // but it did not move any PT
         assertEq(pt.balanceOf(address(jim)), 100e18);
@@ -170,7 +172,7 @@ contract SpaceTest is Test {
         assertEq(target.balanceOf(address(jim)), 98e18);
 
         // and it minted jim's account more BPT tokens
-        assertClose(space.balanceOf(address(jim)), 2e18, 1e6);
+        assertClose(space.balanceOf(address(jim)), uint256(2e18).mulDown(INIT_SCALE), 1e6);
 
         // but it still did not move any PT
         assertEq(pt.balanceOf(address(jim)), 100e18);
@@ -190,7 +192,8 @@ contract SpaceTest is Test {
         // Can successfully swap PT in
         uint256 targetOt = jim.swapIn(true);
         // Fixed amount in, variable amount out
-        uint256 expectedTargetOut = 646139118808653602;
+        // Calculated externally
+        uint256 expectedTargetOut = 608137287845597896;
 
         // Swapped one PT in
         assertEq(pt.balanceOf(address(jim)), 99e18);
@@ -206,16 +209,16 @@ contract SpaceTest is Test {
         assertEq(balances[pti], 1e18);
         assertEq(balances[targeti], 1e18 - expectedTargetOut);
 
-        // Can not swap a full Target in
+        // Can not swap a full Target in b/c it pushes the rate below zero
         try jim.swapIn(false) {
             fail();
         } catch Error(string memory error) {
-            assertEq(error, "BAL#001"); // sub overflow
+            assertEq(error, Errors.NEGATIVE_RATE);
         }
 
         // Can successfully swap a partial Target in
         uint256 ptOut = jim.swapIn(false, 0.5e18);
-        uint256 expectedPTOut = 804788983856768174;
+        uint256 expectedPTOut = 839711740636588881;
 
         assertEq(
             target.balanceOf(address(jim)),
@@ -231,13 +234,16 @@ contract SpaceTest is Test {
         try jim.swapOut(false, 1) {
             fail();
         } catch Error(string memory error) {
-            assertEq(error, "BAL#001");
+            // This pushes the rate negtaive, though it would still fail on overflow if
+            // the negative rate check wasn't there
+            assertEq(error, Errors.NEGATIVE_RATE);
         }
 
         // Can successfully swap Target out
         uint256 ptsIn = jim.swapOut(true, 0.1e18);
         // Fixed amount out, variable amount in
-        uint256 expectedPTIn = 105559160849472541; // around 0.10556
+        // Calculated externally
+        uint256 expectedPTIn = 116115076934419786; // around 0.10556
 
         // Received 0.1 Target
         assertEq(target.balanceOf(address(jim)), 99e18 + 0.1e18);
@@ -256,6 +262,46 @@ contract SpaceTest is Test {
         assertEq(space.balanceOf(address(jim)), 0);
         // It moved almost all Target back to this account (locked MINIMUM_BPT permanently)
         assertClose(target.balanceOf(address(jim)), 100e18, 1e6);
+    }
+
+    function testExitRounding() public {
+        vm.roll(0);
+        jim.join();
+        vm.roll(1);
+        // Complete exit leaving only min bpt in pool
+        jim.exit(space.balanceOf(address(jim)));
+        vm.roll(2);
+
+        // Join uses ratio of totalSupply() / target reserves, which is small here
+        // so the join will be affected heavily by the rounding from the exit
+        jim.join(50e18, 50e18);
+        vm.roll(3);
+        sid.swapIn(true, 20e18);
+    }
+
+    function testGrowingTargetReservesWithStableBptSupply() public {
+        vm.roll(0);
+        adapter.setScale(1.1e18);
+        jim.join(0, 1e18);
+        vm.roll(1);
+
+        sid.swapIn(true);
+        uint256 tOut;
+        for (uint256 i = 0; i < 20; i++) {
+            // 1 PT in
+            uint256 _tOut = sid.swapIn(true);
+
+            // PTs get more Target as fees accrue after the PT reserves side has returned to 0
+            assertGt(_tOut, tOut);
+            tOut = _tOut;
+
+            // 1 PT out
+            sid.swapOut(false);
+        }
+
+        vm.roll(2);
+        jim.exit(space.balanceOf(address(jim)));
+        vm.roll(3);
     }
 
     function testJoinSwapExit() public {
@@ -580,6 +626,8 @@ contract SpaceTest is Test {
         // Sid inits PT
         sid.swapIn(true, 5.5e18);
 
+        // Turn "auto growth" on for the adapter's scale
+        adapter.setScale(0);
         uint256 initScale = adapter.scale();
 
         // Determine how much Target Jim gets for one PT
@@ -643,6 +691,8 @@ contract SpaceTest is Test {
         MockDividerSpace divider = new MockDividerSpace(8);
         // Set Target to 9 decimals
         MockAdapterSpace adapter = new MockAdapterSpace(9);
+        adapter.setScale(INIT_SCALE);
+
         SpaceFactory spaceFactory = new SpaceFactory(
             vault,
             address(divider),
