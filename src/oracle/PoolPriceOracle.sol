@@ -102,7 +102,7 @@ abstract contract PoolPriceOracle is IPoolPriceOracle, IPriceOracle {
     // IPriceOracle
 
     function getLargestSafeQueryWindow() external pure override returns (uint256) {
-        return 5.5 hours;
+        return 6.66 hours;
     }
 
     function getLatest(Variable variable) external view override returns (uint256) {
