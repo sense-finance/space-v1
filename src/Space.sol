@@ -460,7 +460,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         // Pow up for `x1` & `y1` and down for `xOrY2` causes the pow induced error for `xOrYPost`
         // to tend towards higher values rather than lower.
         // Effectively we're adding a little bump up for ammountIn, and down for amountOut
-        //
+
         // x1 = xPre ^ a; y1 = yPre ^ a
         uint256 x1 = reservesTokenIn.powUp(a);
         uint256 y1 = reservesTokenOut.powUp(a);
@@ -675,8 +675,8 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     /// @notice Get the "fair" price for the BPT tokens given a correct price for PTs
     /// in terms of Target. i.e. the price of one BPT in terms of Target using reserves
     /// as they would be if they accurately reflected the true PT price
-    /// @dev see the description here https://github.com/makerdao/univ2-lp-oracle/blob/master/src/UNIV2LPOracle.sol#L26
-    /// for a technical explanation of the concept
+    /// @dev for a technical explanation of the concept, see the description in the following repo:
+    /// https://github.com/makerdao/univ2-lp-oracle/blob/874a59d74d847909cc4a31f0d38ee6b020f6525f/src/UNIV2LPOracle.sol#L26
     function getFairBPTPrice(uint256 ptTwapDuration)
         public
         view
