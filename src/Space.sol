@@ -260,7 +260,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     function onExitPool(
         bytes32 poolId,
         address sender,
-        address, /* _recipient */
+        address, /* recipient */
         uint256[] memory reserves,
         uint256 lastChangeBlock,
         uint256 protocolSwapFeePercentage,
@@ -282,12 +282,19 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
 
         // Determine what percentage of the pool the BPT being passed in represents
         uint256 bptAmountIn = abi.decode(userData, (uint256));
-        uint256 pctPool = bptAmountIn.divDown(totalSupply());
+        uint256 pctPool = bptAmountIn.divUp(totalSupply());
 
         // Calculate the amount of tokens owed in return for giving that amount of BPT in
         uint256[] memory amountsOut = new uint256[](2);
-        amountsOut[0] = reserves[0].mulDown(pctPool);
-        amountsOut[1] = reserves[1].mulDown(pctPool);
+        // Even though we are sending tokens to the user, we round both amounts out *up* here, b/c:
+        //     1) Maximizing the number of tokens users get when exiting maximizes the
+        //        number of BPT we mint for users joining afterwards (it maximizes the equation 
+        //        totalSupply * amtIn / reserves). As a result, we ensure that the total supply component of the
+        //        numerator is greater than the denominator in the "marginal rate equation" (eq. 2) from the YS paper
+        //     2) We lock MINIMUM_BPT away at initialization, which means a number of reserves will
+        //        remain untouched and will function as a buffer for "off by one" rounding errors
+        amountsOut[0] = reserves[0].mulUp(pctPool);
+        amountsOut[1] = reserves[1].mulUp(pctPool);
 
         // Amounts are leaving the Pool, so we round down
         _downscaleDownArray(amountsOut);
@@ -462,7 +469,8 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         //
         // No overflow risk in the addition as Balancer will only allow an `amountDelta` for tokens coming in
         // if the user actually has it, and the max token supply for well-behaved tokens is bounded by the uint256 type
-        uint256 xOrY2 = (givenIn ? reservesTokenIn + amountDelta : reservesTokenOut.sub(amountDelta)).powDown(a);
+        uint256 newReservesTokenInOrOut = givenIn ? reservesTokenIn + amountDelta : reservesTokenOut.sub(amountDelta);
+        uint256 xOrY2 = newReservesTokenInOrOut.powDown(a);
 
         // x1 + y1 = xOrY2 + xOrYPost ^ a
         // -> xOrYPost ^ a = x1 + y1 - x2
@@ -470,8 +478,28 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         uint256 xOrYPost = (x1.add(y1).sub(xOrY2)).powUp(FixedPoint.ONE.divDown(a));
         _require(!givenIn || reservesTokenOut > xOrYPost, Errors.SWAP_TOO_SMALL);
 
-        // amountOut = yPre - yPost; amountIn = xPost - xPre
-        return givenIn ? reservesTokenOut.sub(xOrYPost) : xOrYPost.sub(reservesTokenIn);
+        if (givenIn) {
+            // Check that PT reserves are greater than "Underlying" reserves per section 6.3 of the YS paper
+            _require(
+                pTIn ?
+                newReservesTokenInOrOut >= xOrYPost :
+                newReservesTokenInOrOut <= xOrYPost,
+                Errors.NEGATIVE_RATE
+            );
+
+            // amountOut = yPre - yPost
+            return reservesTokenOut.sub(xOrYPost);
+        } else {
+            _require(
+                pTIn ?
+                xOrYPost >= newReservesTokenInOrOut :
+                xOrYPost <= newReservesTokenInOrOut,
+                Errors.NEGATIVE_RATE
+            );
+
+            // amountIn = xPost - xPre
+            return xOrYPost.sub(reservesTokenIn);
+        }
     }
 
     /* ========== PROTOCOL FEE HELPERS ========== */
@@ -647,8 +675,8 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     /// @notice Get the "fair" price for the BPT tokens given a correct price for PTs
     /// in terms of Target. i.e. the price of one BPT in terms of Target using reserves
     /// as they would be if they accurately reflected the true PT price
-    /// @dev see the description here https://github.com/makerdao/univ2-lp-oracle/blob/master/src/UNIV2LPOracle.sol#L26
-    /// for a technical explanation of the concept
+    /// @dev for a technical explanation of the concept, see the description in the following repo:
+    /// https://github.com/makerdao/univ2-lp-oracle/blob/874a59d74d847909cc4a31f0d38ee6b020f6525f/src/UNIV2LPOracle.sol#L26
     function getFairBPTPrice(uint256 ptTwapDuration)
         public
         view

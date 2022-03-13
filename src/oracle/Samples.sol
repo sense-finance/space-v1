@@ -13,6 +13,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 // Forked from balancer-v2-monorepo/pkg/pool-utils/contracts/oracle/**
+// at commit ef246cf213541c4120a78f811560f100e5a7e15a
 
 pragma solidity ^0.7.0;
 
