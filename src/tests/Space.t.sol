@@ -96,7 +96,7 @@ contract SpaceTest is Test {
         adapter = new MockAdapterSpace(18);
         adapter.setScale(INIT_SCALE);
 
-        ts = FixedPoint.ONE.divDown(FixedPoint.ONE * 31622400); // 1 / 1 year in seconds
+        ts = FixedPoint.ONE.divDown(FixedPoint.ONE * 31622400 * 10); // 1 / 10 year in seconds
         // 0.95 for selling Target
         g1 = (FixedPoint.ONE * 950).divDown(FixedPoint.ONE * 1000);
         // 1 / 0.95 for selling PT

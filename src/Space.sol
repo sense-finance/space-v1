@@ -70,9 +70,6 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     /// @notice Minimum BPT we can have for this pool after initialization
     uint256 public constant MINIMUM_BPT = 1e6;
 
-    /// @notice Approx seconds per year to determine the ipmlied rate
-    uint256 public constant SECONDS_PER_YEAR = 31536000;
-
     /* ========== PUBLIC IMMUTABLES ========== */
 
     /// @notice Adapter address for the associated Series
@@ -648,27 +645,32 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     /* ========== PUBLIC GETTERS ========== */
 
     /// @notice Get the APY implied rate for PTs given a price in Target
+    /// @param pTPriceInTarget price of PTs in terms of Target
     function getImpliedRateFromPrice(uint256 pTPriceInTarget) public view returns (uint256 impliedRate) {
         if (block.timestamp >= maturity) {
             return 0;
         }
 
+        // Calculate the *normed* implied rate from the PT price 
+        // (i.e. the implied rate of PTs over the period normed by the timeshift param)
         impliedRate = FixedPoint.ONE
             .divDown(pTPriceInTarget.mulDown(AdapterLike(adapter).scaleStored()))
-            .powDown(SECONDS_PER_YEAR.divDown(maturity - block.timestamp))
+            .powDown(FixedPoint.ONE.divDown(ts).divDown((maturity - block.timestamp) * FixedPoint.ONE))
             .sub(FixedPoint.ONE);
     }
 
     /// @notice Get price of PTs in Target terms given a price for PTs in Target
+    /// @param impliedRate Normed implied rate
     function getPriceFromImpliedRate(uint256 impliedRate) public view returns (uint256 pTPriceInTarget) {
         if (block.timestamp >= maturity) {
             return FixedPoint.ONE;
         }
 
+        // Calculate the PT price from an implied rate normed by the timeshift param
         pTPriceInTarget = FixedPoint.ONE
             .divDown(impliedRate.add(FixedPoint.ONE)
-            .powDown((maturity - block.timestamp)
-            .divDown(SECONDS_PER_YEAR)))
+            .powDown(((maturity - block.timestamp) * FixedPoint.ONE)
+            .divDown(FixedPoint.ONE.divDown(ts))))
             .divDown(AdapterLike(adapter).scaleStored());
     }
 
