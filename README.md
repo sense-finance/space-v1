@@ -1,8 +1,8 @@
 # Space v1 • [![ci](https://github.com/sense-finance/space-v1/actions/workflows/ci.yml/badge.svg)](https://github.com/sense-finance/space-v1/actions/workflows/ci.yml) [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
-Implementation of [Sense Space](https://medium.com/sensefinance/introducing-sense-space-85a949087209) on top of Balancer v2. 
+This repo contains an implementation of [Sense Space](https://medium.com/sensefinance/introducing-sense-space-85a949087209), a YieldSpace implementation with a native yield-bearing side and an oracle, on top of Balancer v2. 
 
-High-level notes and user journeys are available [here](https://docs.sense.finance/docs/core-concepts/#sense-space).
+High-level notes and user journeys are available in the Sense docs [here](https://docs.sense.finance/docs/core-concepts/#sense-space). Also, note that while the Sense protocol utilizes Space, only the Space Factory contains logic tying the two together. One could easily make another factory independent of Sense.
 
 ## Deployments
 
