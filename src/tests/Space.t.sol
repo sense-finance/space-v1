@@ -302,7 +302,7 @@ contract SpaceTest is Test {
         sid.swapIn(true, 0.05e18);
         uint256 tOut;
         for (uint256 i = 0; i < 20; i++) {
-            // 1 PT in
+            // 3 PT in
             uint256 _tOut = sid.swapIn(true, 3e18);
 
             // A PT to Target swap gives more Target as fees accrue after the
@@ -310,7 +310,7 @@ contract SpaceTest is Test {
             assertGt(_tOut, tOut);
             tOut = _tOut;
 
-            // 1 PT out
+            // 3 PT out
             sid.swapOut(false, 3e18);
         }
 
@@ -350,7 +350,7 @@ contract SpaceTest is Test {
         // Swap 0.8 PT in
         sid.swapIn(true, 0.8e18);
 
-        // Ava tries to Join 1 of each (should take 0.5 PT and some amount of Target)
+        // Ava tries to Join 0.8 of each (should take 0.8 PT and some amount of Target)
         ava.join(0.8e18, 0.8e18);
         assertGe(target.balanceOf(address(ava)), 99e18);
         assertEq(pt.balanceOf(address(ava)), 99.2e18);
