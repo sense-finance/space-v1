@@ -845,7 +845,7 @@ contract SpaceTest is Test {
         vm.roll(2);
         // Tiny join so that the reserves when the TWAP is deteremined are similar to what they'll be
         // when we determine the instantaneous spot price
-        tim.join(1, 1);
+        tim.join(10, 10);
         (, , , , , , sampleTs) = space.getSample(2);
         assertEq(sampleTs, 2 hours);
 
@@ -870,7 +870,7 @@ contract SpaceTest is Test {
 
         vm.warp(20 hours);
         vm.roll(20);
-        tim.join(1, 1);
+        tim.join(10, 10);
         queries[0] = IPriceOracle.OracleAverageQuery({
             variable: IPriceOracle.Variable.PAIR_PRICE,
             secs: twapPeriod,
@@ -902,7 +902,7 @@ contract SpaceTest is Test {
         for (uint256 i = 3; i < 23; i++) {
             vm.warp(i * 1 hours);
             vm.roll(i);
-            tim.join(1, 1);
+            tim.join(10, 10);
         }
 
         (, , , , , , sampleTs) = space.getSample(space.getTotalSamples() - 1);
@@ -911,7 +911,7 @@ contract SpaceTest is Test {
         for (uint256 i = 23; i < 42; i++) {
             vm.warp(i * 1 hours);
             vm.roll(i);
-            tim.join(1, 1);
+            tim.join(10, 10);
         }
 
         (, , , , , , sampleTs) = space.getSample(space.getTotalSamples() - 1);
