@@ -193,7 +193,7 @@ contract SpaceTest is Test {
         uint256 targetOt = jim.swapIn(true);
         // Fixed amount in, variable amount out
         // Calculated externally by solving the YS invariant
-        uint256 expectedTargetOut = 608137287845597896;
+        uint256 expectedTargetOut = 860452261775322692;
 
         // Swapped one PT in
         assertEq(pt.balanceOf(address(jim)), 99e18);
@@ -218,7 +218,7 @@ contract SpaceTest is Test {
 
         // Can successfully swap a partial Target in
         uint256 ptOut = jim.swapIn(false, 0.5e18);
-        uint256 expectedPTOut = 839711740636588881;
+        uint256 expectedPTOut = 591079133821352896;
 
         assertEq(
             target.balanceOf(address(jim)),
@@ -243,7 +243,7 @@ contract SpaceTest is Test {
         uint256 ptsIn = jim.swapOut(true, 0.1e18);
         // Fixed amount out, variable amount in
         // Calculated externally
-        uint256 expectedPTIn = 116115076934419786; // around 0.11612
+        uint256 expectedPTIn = 110582918254120990; // around 0.11612
 
         // Received 0.1 Target
         assertEq(target.balanceOf(address(jim)), 99e18 + 0.1e18);
@@ -296,14 +296,14 @@ contract SpaceTest is Test {
     function testGrowingTargetReservesWithStableBptSupply() public {
         vm.roll(0);
         adapter.setScale(1.1e18);
-        jim.join(0, 1e18);
+        jim.join(0, 10e18);
         vm.roll(1);
 
-        sid.swapIn(true);
+        sid.swapIn(true, 0.05e18);
         uint256 tOut;
         for (uint256 i = 0; i < 20; i++) {
             // 1 PT in
-            uint256 _tOut = sid.swapIn(true);
+            uint256 _tOut = sid.swapIn(true, 3e18);
 
             // A PT to Target swap gives more Target as fees accrue after the
             // PT reserves side has returned to 0
@@ -311,7 +311,7 @@ contract SpaceTest is Test {
             tOut = _tOut;
 
             // 1 PT out
-            sid.swapOut(false);
+            sid.swapOut(false, 3e18);
         }
 
         vm.roll(2);
@@ -347,19 +347,18 @@ contract SpaceTest is Test {
         // The pool moved one Target out of jim's account
         assertEq(target.balanceOf(address(jim)), 99e18);
 
-        // Swap 1 PT in
-        sid.swapIn(true);
+        // Swap 0.8 PT in
+        sid.swapIn(true, 0.8e18);
 
-        // Ava tries to Join 1 of each (should take 1 PT and some amount of Target)
-        ava.join();
+        // Ava tries to Join 1 of each (should take 0.5 PT and some amount of Target)
+        ava.join(0.8e18, 0.8e18);
         assertGe(target.balanceOf(address(ava)), 99e18);
-        assertEq(pt.balanceOf(address(ava)), 99e18);
+        assertEq(pt.balanceOf(address(ava)), 99.2e18);
 
-        // Swap 1 PT in
+        // Swap 0.2 PT in
+        sid.swapIn(true, 0.2e18);
 
-        sid.swapIn(true);
-
-        // Ava tries to Join 1 of each (should take 1 PT and even less Target than last time)
+        // Ava tries to Join 1 of each (should take 1 PT and less Target than last time)
         uint256 targetPreJoin = target.balanceOf(address(ava));
         ava.join();
         assertGe(target.balanceOf(address(ava)), 99e18);
@@ -369,7 +368,7 @@ contract SpaceTest is Test {
             targetPreJoin - target.balanceOf(address(ava))
         );
         // Should have joined Target / PT at the ratio of the pool
-        assertEq(pt.balanceOf(address(ava)), 98e18);
+        assertEq(pt.balanceOf(address(ava)), 98.2e18);
         (, uint256[] memory balances, ) = vault.getPoolTokens(
             space.getPoolId()
         );
@@ -399,11 +398,11 @@ contract SpaceTest is Test {
             assertEq(error, "BAL#001");
         }
 
-        // The first swap only took Target from Jim, so he'll have fewer Target but more PT
+        // The first swap only took Target from Jim, so he'll have fewer Target but more PTs
         assertClose(target.balanceOf(address(jim)), 99.2e18, 1e17);
-        assertClose(target.balanceOf(address(ava)), 99.8e18, 1e17);
-        assertClose(pt.balanceOf(address(jim)), 101.5e18, 1e12);
-        assertClose(pt.balanceOf(address(ava)), 100.5e18, 1e12);
+        assertClose(target.balanceOf(address(ava)), 99.9e18, 1e17);
+        assertClose(pt.balanceOf(address(jim)), 100.9e18, 1e12);
+        assertClose(pt.balanceOf(address(ava)), 100.1e18, 1e12);
     }
 
     function testSpaceFees() public {
@@ -940,19 +939,19 @@ contract SpaceTest is Test {
     function testImpliedRateFromPriceUtil() public {
         adapter.setScale(1e18);
         // Compare to implied rates calculated externally
-        assertClose(space.getImpliedRateFromPrice(0.5e18), 2984877898945961700, 1e14);
-        assertClose(space.getImpliedRateFromPrice(0.9e18), 233857315042038880, 1e14);
-        assertClose(space.getImpliedRateFromPrice(0.98e18), 41117876703261835, 1e14);
+        assertClose(space.getImpliedRateFromPrice(0.5e18), 1048575000000000000000000, 1e18);
+        assertClose(space.getImpliedRateFromPrice(0.9e18), 7225263339969966000, 1e18);
+        assertClose(space.getImpliedRateFromPrice(0.98e18), 497885049771156200, 1e18);
 
         // Warp halfway through the term
         vm.warp(7905600);
-        assertClose(space.getImpliedRateFromPrice(0.9e18), 522403873882749400, 1e14);
-        assertClose(space.getImpliedRateFromPrice(0.98e18), 83926433191108040, 1e14);
+        assertClose(space.getImpliedRateFromPrice(0.9e18), 66654957011853880000, 1e18);
+        assertClose(space.getImpliedRateFromPrice(0.98e18), 1243659622327939600, 1e18);
 
         // Warp 7/8ths of the way through the term
         vm.warp(13834800);
-        assertClose(space.getImpliedRateFromPrice(0.9e18), 4371796124019022000, 1e14);
-        assertClose(space.getImpliedRateFromPrice(0.98e18), 380381815250082860, 1e14);
+        assertClose(space.getImpliedRateFromPrice(0.9e18), 20950696665886087000000000, 1e18);
+        assertClose(space.getImpliedRateFromPrice(0.98e18), 24341241586778587000, 1e18);
 
         vm.warp(maturity);
         assertEq(space.getImpliedRateFromPrice(0.9e18), 0);
@@ -960,7 +959,7 @@ contract SpaceTest is Test {
         vm.warp(0);
         // Try a different scale
         adapter.setScale(2e18);
-        assertClose(space.getImpliedRateFromPrice(0.45e18), 233857315042038880, 1e14);
+        assertClose(space.getImpliedRateFromPrice(0.45e18), 7225263339969966000, 1e18);
     }
 
     function testPriceFromImpliedRateUtil() public {
@@ -1088,7 +1087,7 @@ contract SpaceTest is Test {
         // Swapping in within the same block as the last join won't update the oracle 
         // (max of one price stored per block), 
         // but it will update the spot reserves
-        sid.swapIn(true, 2e18);
+        sid.swapIn(true, 4e18);
 
         queries = new IPriceOracle.OracleAverageQuery[](1);
         queries[0] = IPriceOracle.OracleAverageQuery({
@@ -1112,7 +1111,8 @@ contract SpaceTest is Test {
             .mulDown(fairPTPriceInTarget1)
             .add(balances[1 - space.pti()])
             .divDown(space.totalSupply());
-        assertTrue(!isClose(spotBptValueFairPrice1, spotBptValueFairPrice2, 9e15));
+
+        assertTrue(!isClose(spotBptValueFairPrice1, spotBptValueFairPrice2, 5e15));
     }
 
     // testPriceNeverAboveOne
