@@ -63,6 +63,35 @@ contract User {
         );
     }
 
+    function join(uint256 reqPrincipalIn, uint256 reqTargetIn, uint256 minBptOut) public {
+        (IERC20[] memory _assets, , ) = vault.getPoolTokens(space.getPoolId());
+
+        IAsset[] memory assets = new IAsset[](2);
+        assets[0] = IAsset(address(_assets[0]));
+        assets[1] = IAsset(address(_assets[1]));
+
+        uint256[] memory maxAmountsIn = new uint256[](2);
+        maxAmountsIn[0] = type(uint256).max;
+        maxAmountsIn[1] = type(uint256).max;
+
+        (uint256 pti, uint256 targeti) = space.getIndices();
+        uint256[] memory amountsIn = new uint256[](2);
+        amountsIn[pti] = reqPrincipalIn;
+        amountsIn[targeti] = reqTargetIn;
+
+        vault.joinPool(
+            space.getPoolId(),
+            address(this),
+            address(this),
+            IVault.JoinPoolRequest({
+                assets: assets,
+                maxAmountsIn: maxAmountsIn,
+                userData: abi.encode(amountsIn, minBptOut),
+                fromInternalBalance: false
+            })
+        );
+    }
+
     function exit(uint256 bptAmountIn) public {
         (IERC20[] memory _assets, , ) = vault.getPoolTokens(space.getPoolId());
 

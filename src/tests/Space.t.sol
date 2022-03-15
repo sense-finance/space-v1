@@ -405,6 +405,29 @@ contract SpaceTest is Test {
         assertClose(pt.balanceOf(address(ava)), 100.1e18, 1e12);
     }
 
+    function testMinBptOut() public {
+        uint256 minBpt = space.MINIMUM_BPT();
+        vm.expectRevert("SNS#108");
+        // Reverts if the minimum BPT isn't met by 1 token
+        jim.join(0, 1e18, INIT_SCALE.mulDown(1e18).sub(minBpt) + 1);
+
+        // Doesn't revert if the minimum BPT is exactly me
+        jim.join(0, 1e18, INIT_SCALE.mulDown(1e18).sub(minBpt));
+
+        // After a swap -----
+        sid.swapIn(true, 0.8e18);
+
+        // Calculate how many BPT Jim would mint from a specific join
+        uint256 preBpt = space.balanceOf(address(jim));
+        jim.join(1e18, 1e18);
+        uint256 newBpt = space.balanceOf(address(jim)) - preBpt;
+        jim.exit(newBpt);
+
+        vm.expectRevert("SNS#108");
+        jim.join(1e18, 1e18, newBpt + 2); // account for rounding error
+        jim.join(1e18, 1e18, newBpt);
+    }
+
     function testSpaceFees() public {
         // Target in
         jim.join(0, 20e18);

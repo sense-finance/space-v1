@@ -31,4 +31,7 @@ abstract contract VM {
 
     // If the condition is false, discard this run's fuzz inputs and generate new ones
     function assume(bool) virtual external;
+
+    // Expects an error on next call
+    function expectRevert(bytes calldata) external virtual;
 }

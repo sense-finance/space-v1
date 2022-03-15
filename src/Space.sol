@@ -180,7 +180,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
 
         _require(maturity >= block.timestamp, Errors.POOL_PAST_MATURITY);
 
-        uint256[] memory reqAmountsIn = abi.decode(userData, (uint256[]));
+        (uint256[] memory reqAmountsIn, uint256 minBptOut) = abi.decode(userData, (uint256[], uint256));
 
         // Upscale both requested amounts and reserves to 18 decimals
         _upscaleArray(reserves);
@@ -200,6 +200,8 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
 
             // Mint the recipient BPT comensurate with the value of their join in Underlying
             _mintPoolTokens(recipient, underlyingIn.sub(MINIMUM_BPT));
+
+            _require(underlyingIn.sub(MINIMUM_BPT) >= minBptOut, Errors.BPT_OUT_MIN_AMOUNT);
 
             // Amounts entering the Pool, so we round up
             _downscaleUpArray(reqAmountsIn);
@@ -231,6 +233,8 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             }
 
             (uint256 bptToMint, uint256[] memory amountsIn) = _tokensInForBptOut(reqAmountsIn, reserves);
+
+            _require(bptToMint >= minBptOut, Errors.BPT_OUT_MIN_AMOUNT);
 
             // Amounts entering the Pool, so we round up
             _downscaleUpArray(amountsIn);
