@@ -198,10 +198,12 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             // issues with rounding and ensures that this code path will only be executed once
             _mintPoolTokens(address(0), MINIMUM_BPT);
 
-            // Mint the recipient BPT comensurate with the value of their join in Underlying
-            _mintPoolTokens(recipient, underlyingIn.sub(MINIMUM_BPT));
+            uint256 bptToMint = underlyingIn.sub(MINIMUM_BPT);
 
-            _require(underlyingIn.sub(MINIMUM_BPT) >= minBptOut, Errors.BPT_OUT_MIN_AMOUNT);
+            // Mint the recipient BPT comensurate with the value of their join in Underlying
+            _mintPoolTokens(recipient, bptToMint);
+
+            _require(bptToMint >= minBptOut, Errors.BPT_OUT_MIN_AMOUNT);
 
             // Amounts entering the Pool, so we round up
             _downscaleUpArray(reqAmountsIn);
@@ -656,7 +658,9 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         }
 
         // Calculate the *normed* implied rate from the PT price 
-        // (i.e. the implied rate of PTs over the period normed by the timeshift param)
+        // (i.e. the effective implied rate of PTs over the period normed by the timeshift param)
+        // (e.g. PTs = 0.9 [U], time to maturity of 0.5 yrs, timeshift param of 10 yrs, the
+        //  normed implied rate = ( 1 / 0.9 ) ^ ( 1 / (0.5 * [1 / 10]) ) - 1 = 722.5% )
         impliedRate = FixedPoint.ONE
             .divDown(pTPriceInTarget.mulDown(AdapterLike(adapter).scaleStored()))
             .powDown(FixedPoint.ONE.divDown(ts).divDown((maturity - block.timestamp) * FixedPoint.ONE))
@@ -670,7 +674,8 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             return FixedPoint.ONE;
         }
 
-        // Calculate the PT price from an implied rate normed by the timeshift param
+        // Calculate the PT price in Target from an implied rate adjusted by the timeshift param,
+        // where the timeshift is a normalization factor applied to the time to maturity
         pTPriceInTarget = FixedPoint.ONE
             .divDown(impliedRate.add(FixedPoint.ONE)
             .powDown(((maturity - block.timestamp) * FixedPoint.ONE)
