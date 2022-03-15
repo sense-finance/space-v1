@@ -8,6 +8,11 @@ High-level notes and user journeys are available in the Sense docs [here](https:
 
 ### Space v1 Factory Contract Addresses
 
+| Chain   | Address                                                                                                                                        |
+| ------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Mainnet | [0x6633c65e9f80c65d98abde3f9f4e6e504f4d5352](https://etherscan.io/address/0x6633c65e9f80c65d98abde3f9f4e6e504f4d5352#code)                     |
+| Goerli  | [0xfa1779ed7B384879D36d628564913f141ed930C4](https://kovan.etherscan.io/address/0xfa1779ed7B384879D36d628564913f141ed930C4#code)      
+
 ## Development
 
 This repo uses [Foundry: forge](https://github.com/gakonst/foundry) for development and testing
