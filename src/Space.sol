@@ -70,9 +70,6 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     /// @notice Minimum BPT we can have for this pool after initialization
     uint256 public constant MINIMUM_BPT = 1e6;
 
-    /// @notice Approx seconds per year to determine the ipmlied rate
-    uint256 public constant SECONDS_PER_YEAR = 31536000;
-
     /* ========== PUBLIC IMMUTABLES ========== */
 
     /// @notice Adapter address for the associated Series
@@ -183,7 +180,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
 
         _require(maturity >= block.timestamp, Errors.POOL_PAST_MATURITY);
 
-        uint256[] memory reqAmountsIn = abi.decode(userData, (uint256[]));
+        (uint256[] memory reqAmountsIn, uint256 minBptOut) = abi.decode(userData, (uint256[], uint256));
 
         // Upscale both requested amounts and reserves to 18 decimals
         _upscaleArray(reserves);
@@ -201,8 +198,12 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             // issues with rounding and ensures that this code path will only be executed once
             _mintPoolTokens(address(0), MINIMUM_BPT);
 
+            uint256 bptToMint = underlyingIn.sub(MINIMUM_BPT);
+
             // Mint the recipient BPT comensurate with the value of their join in Underlying
-            _mintPoolTokens(recipient, underlyingIn.sub(MINIMUM_BPT));
+            _mintPoolTokens(recipient, bptToMint);
+
+            _require(bptToMint >= minBptOut, Errors.BPT_OUT_MIN_AMOUNT);
 
             // Amounts entering the Pool, so we round up
             _downscaleUpArray(reqAmountsIn);
@@ -234,6 +235,8 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             }
 
             (uint256 bptToMint, uint256[] memory amountsIn) = _tokensInForBptOut(reqAmountsIn, reserves);
+
+            _require(bptToMint >= minBptOut, Errors.BPT_OUT_MIN_AMOUNT);
 
             // Amounts entering the Pool, so we round up
             _downscaleUpArray(amountsIn);
@@ -648,27 +651,35 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     /* ========== PUBLIC GETTERS ========== */
 
     /// @notice Get the APY implied rate for PTs given a price in Target
+    /// @param pTPriceInTarget price of PTs in terms of Target
     function getImpliedRateFromPrice(uint256 pTPriceInTarget) public view returns (uint256 impliedRate) {
         if (block.timestamp >= maturity) {
             return 0;
         }
 
+        // Calculate the *normed* implied rate from the PT price 
+        // (i.e. the effective implied rate of PTs over the period normed by the timeshift param)
+        // (e.g. PTs = 0.9 [U], time to maturity of 0.5 yrs, timeshift param of 10 yrs, the
+        //  normed implied rate = ( 1 / 0.9 ) ^ ( 1 / (0.5 * [1 / 10]) ) - 1 = 722.5% )
         impliedRate = FixedPoint.ONE
             .divDown(pTPriceInTarget.mulDown(AdapterLike(adapter).scaleStored()))
-            .powDown(SECONDS_PER_YEAR.divDown(maturity - block.timestamp))
+            .powDown(FixedPoint.ONE.divDown(ts).divDown((maturity - block.timestamp) * FixedPoint.ONE))
             .sub(FixedPoint.ONE);
     }
 
     /// @notice Get price of PTs in Target terms given a price for PTs in Target
+    /// @param impliedRate Normed implied rate
     function getPriceFromImpliedRate(uint256 impliedRate) public view returns (uint256 pTPriceInTarget) {
         if (block.timestamp >= maturity) {
             return FixedPoint.ONE;
         }
 
+        // Calculate the PT price in Target from an implied rate adjusted by the timeshift param,
+        // where the timeshift is a normalization factor applied to the time to maturity
         pTPriceInTarget = FixedPoint.ONE
             .divDown(impliedRate.add(FixedPoint.ONE)
-            .powDown((maturity - block.timestamp)
-            .divDown(SECONDS_PER_YEAR)))
+            .powDown(((maturity - block.timestamp) * FixedPoint.ONE)
+            .divDown(FixedPoint.ONE.divDown(ts))))
             .divDown(AdapterLike(adapter).scaleStored());
     }
 
