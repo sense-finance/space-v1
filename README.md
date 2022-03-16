@@ -55,3 +55,7 @@ forge create SpaceFactory --constructor-args \
     <balancer_vault> <sense_divider> <timeshift> <fee_pts_in> <fee_pts_out> <oracle_enabled> \
     --rpc-url <url> --private-key <key>
 ```
+
+## Security
+
+Sense Space contracts have gone through different independent security audits performed by [Fixed Point Solutions (Kurt Barry)](https://github.com/fixed-point-solutions) and [Spearbit](https://spearbit.com). Reports are located in the [`audits`](./audits) directory.
