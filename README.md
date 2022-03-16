@@ -18,7 +18,7 @@ High-level notes and user journeys are available in the Sense docs [here](https:
 This repo uses [Foundry: forge](https://github.com/gakonst/foundry) for development and testing
 and git submodules for dependency management.
 
-To install Foundry [Foundry: Forge](https://github.com/gakonst/foundry), use the instructions in the linked repo.
+To install Foundry, use the instructions in the linked repo.
 
 ### Test
 
