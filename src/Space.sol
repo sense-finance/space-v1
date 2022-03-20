@@ -238,9 +238,6 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
 
             _require(bptToMint >= minBptOut, Errors.BPT_OUT_MIN_AMOUNT);
 
-            // Amounts entering the Pool, so we round up
-            _downscaleUpArray(amountsIn);
-
             // `recipient` receives liquidity tokens
             _mintPoolTokens(recipient, bptToMint);
 
@@ -253,6 +250,9 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
 
             // Cache new reserves, post join
             _cacheReserves(reserves);
+
+            // Amounts entering the Pool, so we round up
+            _downscaleUpArray(amountsIn);
 
             // Inspired by PR #990 in the balancer v2 monorepo, we always return pt dueProtocolFeeAmounts
             // to the Vault, and pay protocol fees by minting BPT directly to the protocolFeeCollector instead
@@ -285,7 +285,6 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
 
         // Determine what percentage of the pool the BPT being passed in represents
         uint256 bptAmountIn = abi.decode(userData, (uint256));
-        uint256 pctPool = bptAmountIn.divUp(totalSupply());
 
         // Calculate the amount of tokens owed in return for giving that amount of BPT in
         uint256[] memory amountsOut = new uint256[](2);
@@ -296,11 +295,8 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         //        numerator is greater than the denominator in the "marginal rate equation" (eq. 2) from the YS paper
         //     2) We lock MINIMUM_BPT away at initialization, which means a number of reserves will
         //        remain untouched and will function as a buffer for "off by one" rounding errors
-        amountsOut[0] = reserves[0].mulUp(pctPool);
-        amountsOut[1] = reserves[1].mulUp(pctPool);
-
-        // Amounts are leaving the Pool, so we round down
-        _downscaleDownArray(amountsOut);
+        amountsOut[0] = reserves[0].mulUp(bptAmountIn).divUp(totalSupply());
+        amountsOut[1] = reserves[1].mulUp(bptAmountIn).divUp(totalSupply());
 
         // `sender` pays for the liquidity
         _burnPoolTokens(sender, bptAmountIn);
@@ -311,6 +307,9 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
 
         // Cache new invariant and reserves, post exit
         _cacheReserves(reserves);
+
+        // Amounts are leaving the Pool, so we round down
+        _downscaleDownArray(amountsOut);
 
         return (amountsOut, new uint256[](2));
     }
@@ -407,7 +406,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         if (pTReserves == 0) {
             uint256 reqTargetIn = reqAmountsIn[1 - pti];
             // Mint LP shares according to the relative amount of Target being offered
-            uint256 bptToMint = BasicMath.mul(totalSupply(), reqTargetIn) / targetReserves;
+            uint256 bptToMint = reqTargetIn.mulDown(_initScale);
 
             // Pull the entire offered Target
             amountsIn[1 - pti] = reqTargetIn;
