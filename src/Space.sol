@@ -193,12 +193,14 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             // note We assume scale values will always be 18 decimals
             uint256 underlyingIn = reqAmountsIn[1 - pti].mulDown(initScale);
 
-            // Just like weighted pool 2 token from the balancer v2 monorepo,
-            // we lock MINIMUM_BPT in by minting it for the PT address. This reduces potential
-            // issues with rounding and ensures that this code path will only be executed once
-            _mintPoolTokens(address(0), MINIMUM_BPT);
+            uint256 minBpt = _upscale(MINIMUM_BPT, _scalingFactorTarget);
 
-            uint256 bptToMint = underlyingIn.sub(MINIMUM_BPT);
+            // Just like weighted pool 2 token from the balancer v2 monorepo,
+            // we lock minBpt in by minting it for the PT address. This reduces potential
+            // issues with rounding and ensures that this code path will only be executed once
+            _mintPoolTokens(address(0), minBpt);
+
+            uint256 bptToMint = underlyingIn.sub(minBpt);
 
             // Mint the recipient BPT comensurate with the value of their join in Underlying
             _mintPoolTokens(recipient, bptToMint);
@@ -609,8 +611,14 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         if (oracleData.oracleEnabled && block.number > lastChangeBlock && balanceTarget >= 1e16) {
             // Use equation (2) from the YieldSpace paper to calculate the the marginal rate from the reserves
             uint256 impliedRate = balancePT.add(totalSupply())
-                .divDown(balanceTarget.mulDown(_initScale))
-                .sub(FixedPoint.ONE);
+                .divDown(balanceTarget.mulDown(_initScale));
+
+            // Guard against the case where rounding has lead the implied rate to be very slightly negative
+            if (impliedRate < FixedPoint.ONE) {
+                impliedRate = 0;
+            } else {
+                impliedRate = impliedRate.sub(FixedPoint.ONE);
+            }
 
             // Cacluate the price of one PT in Target terms
             uint256 pTPriceInTarget = getPriceFromImpliedRate(impliedRate);
