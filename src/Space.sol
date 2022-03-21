@@ -407,7 +407,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         if (pTReserves == 0) {
             uint256 reqTargetIn = reqAmountsIn[1 - pti];
             // Mint LP shares according to the relative amount of Target being offered
-            uint256 bptToMint = BasicMath.mul(totalSupply(), reqTargetIn) / targetReserves;
+            uint256 bptToMint = reqTargetIn.mulDown(_initScale);
 
             // Pull the entire offered Target
             amountsIn[1 - pti] = reqTargetIn;
