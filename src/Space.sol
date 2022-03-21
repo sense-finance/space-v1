@@ -193,14 +193,12 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             // note We assume scale values will always be 18 decimals
             uint256 underlyingIn = reqAmountsIn[1 - pti].mulDown(initScale);
 
-            uint256 minBpt = _upscale(MINIMUM_BPT, _scalingFactorTarget);
-
             // Just like weighted pool 2 token from the balancer v2 monorepo,
             // we lock minBpt in by minting it for the PT address. This reduces potential
             // issues with rounding and ensures that this code path will only be executed once
-            _mintPoolTokens(address(0), minBpt);
+            _mintPoolTokens(address(0), MINIMUM_BPT);
 
-            uint256 bptToMint = underlyingIn.sub(minBpt);
+            uint256 bptToMint = underlyingIn.sub(MINIMUM_BPT);
 
             // Mint the recipient BPT comensurate with the value of their join in Underlying
             _mintPoolTokens(recipient, bptToMint);
@@ -290,6 +288,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
 
         // Calculate the amount of tokens owed in return for giving that amount of BPT in
         uint256[] memory amountsOut = new uint256[](2);
+        uint256 _totalSupply = totalSupply();
         // Even though we are sending tokens to the user, we round both amounts out *up* here, b/c:
         //     1) Maximizing the number of tokens users get when exiting maximizes the
         //        number of BPT we mint for users joining afterwards (it maximizes the equation 
@@ -297,8 +296,8 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         //        numerator is greater than the denominator in the "marginal rate equation" (eq. 2) from the YS paper
         //     2) We lock MINIMUM_BPT away at initialization, which means a number of reserves will
         //        remain untouched and will function as a buffer for "off by one" rounding errors
-        amountsOut[0] = reserves[0].mulUp(bptAmountIn).divUp(totalSupply());
-        amountsOut[1] = reserves[1].mulUp(bptAmountIn).divUp(totalSupply());
+        amountsOut[0] = reserves[0].mulUp(bptAmountIn).divUp(_totalSupply);
+        amountsOut[1] = reserves[1].mulUp(bptAmountIn).divUp(_totalSupply);
 
         // `sender` pays for the liquidity
         _burnPoolTokens(sender, bptAmountIn);
@@ -408,7 +407,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         if (pTReserves == 0) {
             uint256 reqTargetIn = reqAmountsIn[1 - pti];
             // Mint LP shares according to the relative amount of Target being offered
-            uint256 bptToMint = reqTargetIn.mulDown(_initScale);
+            uint256 bptToMint = BasicMath.mul(totalSupply(), reqTargetIn) / targetReserves;
 
             // Pull the entire offered Target
             amountsIn[1 - pti] = reqTargetIn;
@@ -417,11 +416,12 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         } else {
             // Disambiguate requested amounts wrt token type
             (uint256 reqPTIn, uint256 reqTargetIn) = (reqAmountsIn[pti], reqAmountsIn[1 - pti]);
+            uint256 _totalSupply = totalSupply();
             // Caclulate the percentage of the pool we'd get if we pulled all of the requested Target in
-            uint256 bptToMintTarget = BasicMath.mul(totalSupply(), reqTargetIn) / targetReserves;
+            uint256 bptToMintTarget = BasicMath.mul(_totalSupply, reqTargetIn) / targetReserves;
 
             // Caclulate the percentage of the pool we'd get if we pulled all of the requested PT in
-            uint256 bptToMintPT = BasicMath.mul(totalSupply(), reqPTIn) / pTReserves;
+            uint256 bptToMintPT = BasicMath.mul(_totalSupply, reqPTIn) / pTReserves;
 
             // Determine which amountIn is our limiting factor
             if (bptToMintTarget < bptToMintPT) {
@@ -613,7 +613,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             uint256 impliedRate = balancePT.add(totalSupply())
                 .divDown(balanceTarget.mulDown(_initScale));
 
-            // Guard against the case where rounding has lead the implied rate to be very slightly negative
+            // Guard against the case where rounding on exits has lead the implied rate to be very slightly negative
             if (impliedRate < FixedPoint.ONE) {
                 impliedRate = 0;
             } else {
