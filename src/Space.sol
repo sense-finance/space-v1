@@ -194,7 +194,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             uint256 underlyingIn = reqAmountsIn[1 - pti].mulDown(initScale);
 
             // Just like weighted pool 2 token from the balancer v2 monorepo,
-            // we lock minBpt in by minting it for the PT address. This reduces potential
+            // we lock MINIMUM_BPT in by minting it for the PT address. This reduces potential
             // issues with rounding and ensures that this code path will only be executed once
             _mintPoolTokens(address(0), MINIMUM_BPT);
 
@@ -616,8 +616,8 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
                 .divDown(balanceTarget.mulDown(_initScale));
 
             // Guard against rounding from exits leading the implied rate to be very slightly negative
-            // NOTE: in a future version of this system, we will preserve the postive rate invariant from joins/exits
-            // as we do for swaps
+            // NOTE: in a future version of this system, a postive rate invariant for joins/exits will be preserved,
+            // as is currently done for swaps
             impliedRate = impliedRate < FixedPoint.ONE ? 0 : impliedRate.sub(FixedPoint.ONE);
 
             // Cacluate the price of one PT in Target terms
