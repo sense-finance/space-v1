@@ -403,7 +403,9 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
 
         uint256[] memory amountsIn = new uint256[](2);
 
-        // If the pool has been initialized, but there aren't yet any PT in it
+        // An empty PT reserve occurs after 
+        //     1) Pool initialization
+        //     2) When the entire PT side is swapped out of the pool without implying a negative rate
         if (pTReserves == 0) {
             uint256 reqTargetIn = reqAmountsIn[1 - pti];
             // Mint LP shares according to the relative amount of Target being offered
@@ -613,12 +615,10 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             uint256 impliedRate = balancePT.add(totalSupply())
                 .divDown(balanceTarget.mulDown(_initScale));
 
-            // Guard against the case where rounding on exits has lead the implied rate to be very slightly negative
-            if (impliedRate < FixedPoint.ONE) {
-                impliedRate = 0;
-            } else {
-                impliedRate = impliedRate.sub(FixedPoint.ONE);
-            }
+            // Guard against rounding from exits leading the implied rate to be very slightly negative
+            // NOTE: in a future version of this system, we will preserve the postive rate invariant from joins/exits
+            // as we do for swaps
+            impliedRate = impliedRate < FixedPoint.ONE ? 0 : impliedRate.sub(FixedPoint.ONE);
 
             // Cacluate the price of one PT in Target terms
             uint256 pTPriceInTarget = getPriceFromImpliedRate(impliedRate);

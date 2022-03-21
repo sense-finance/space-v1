@@ -279,15 +279,13 @@ contract SpaceTest is Test {
         assertEq(balances[1 - space.pti()], space.MINIMUM_BPT().divDown(INIT_SCALE));
         vm.roll(2);
 
-        // Join uses ratio of totalSupply() / target reserves, which is small here
-        // so the join will be affected heavily by the rounding from the exit
+        // Pre-swap join uses target in times init_scale to determine the bpt given out
         uint256 TARGET_IN = 50e18;
         sid.join(0, TARGET_IN);
         uint256 joinedTargetInUnderlying = TARGET_IN.mulDown(INIT_SCALE);
         uint256 postSupply = space.totalSupply();
 
-        assertGt(postSupply, preSupply + joinedTargetInUnderlying);
-        assertTrue(!isClose(postSupply, preSupply + joinedTargetInUnderlying, 1e12));
+        assertEq(postSupply, preSupply + joinedTargetInUnderlying);
 
         vm.roll(3);
         sid.swapIn(true, 20e18);
