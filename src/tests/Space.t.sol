@@ -853,7 +853,7 @@ contract SpaceTest is Test {
         assertEq(space.totalSupply(), 500000001000000);
     }
 
-    // companion test to testSmallDecimalsGuardInvalidState, the only difference is that Sia does not join any liquidity
+    // companion test to testSmallDecimalsGuardInvalidState, the primary difference is that Sia does not join any liquidity
     function testFailSmallDecimalsGuardInvalidState(uint64 joinAmt, uint64 swapInAmt1, uint64 swapInAmt2) public {
         vm.assume(joinAmt / 2 > swapInAmt1);
         vm.assume(swapInAmt1 / 2 > swapInAmt2);
@@ -862,7 +862,6 @@ contract SpaceTest is Test {
 
         MockDividerSpace divider = new MockDividerSpace(8);
         MockAdapterSpace adapter = new MockAdapterSpace(8);
-        adapter.setScale(INIT_SCALE);
         SpaceFactory spaceFactory = new SpaceFactory(
             vault,
             address(divider),
@@ -888,16 +887,22 @@ contract SpaceTest is Test {
         pt.mint(address(eve), swapInAmt1 + swapInAmt2);
 
         max.join(0, joinAmt);
-
         eve.swapIn(true, swapInAmt1);
-
         max.exit(space.balanceOf(address(max)));
 
+        (, uint256[] memory balances, ) = vault.getPoolTokens(
+            space.getPoolId()
+        );
+
+        assertTrue(!((balances[0] == 0 || balances[0] == 1) && (balances[1] == 0 || balances[1] == 1)));
+
+        // Even though max re-joins all of his liquidity again...
         max.join(joinAmt, joinAmt);
+        // ...eve's swapIn fails
         eve.swapIn(true, swapInAmt2);
     }
 
-    // companion test to testFailSmallDecimalNoLockedLiquidity, the only difference is that Sia keeps a tiny amount of liquidity locked in the pool
+    // companion test to testFailSmallDecimalNoLockedLiquidity, the primary difference is that Sia keeps a tiny amount of liquidity locked
     function testSmallDecimalsGuardInvalidState(uint64 joinAmt, uint64 swapInAmt1, uint64 swapInAmt2) public {
         vm.assume(joinAmt / 2 > swapInAmt1);
         vm.assume(swapInAmt1 / 2 > swapInAmt2);
@@ -906,7 +911,6 @@ contract SpaceTest is Test {
 
         MockDividerSpace divider = new MockDividerSpace(8);
         MockAdapterSpace adapter = new MockAdapterSpace(8);
-        adapter.setScale(INIT_SCALE);
         SpaceFactory spaceFactory = new SpaceFactory(
             vault,
             address(divider),
@@ -921,29 +925,36 @@ contract SpaceTest is Test {
             address(adapter),
             maturity
         );
-        ERC20Mintable pt = ERC20Mintable(_pt);
         ERC20Mintable _target = ERC20Mintable(adapter.target());
 
-        User max = new User(vault, space, pt, _target);
+        User max = new User(vault, space, ERC20Mintable(_pt), _target);
         _target.mint(address(max), uint256(joinAmt) * 2);
-        pt.mint(address(max),  uint256(joinAmt) * 2);
+        ERC20Mintable(_pt).mint(address(max),  uint256(joinAmt) * 2);
 
-        User eve = new User(vault, space, pt, _target);
-        pt.mint(address(eve), swapInAmt1 + swapInAmt2);
+        User eve = new User(vault, space, ERC20Mintable(_pt), _target);
+        ERC20Mintable(_pt).mint(address(eve), swapInAmt1 + swapInAmt2);
 
-        User sia = new User(vault, space, pt, _target);
-        _target.mint(address(sia), 1e6);
+        User sia = new User(vault, space, ERC20Mintable(_pt), _target);
+        _target.mint(address(sia), 1e8);
 
         // Sia keeps a little seed liquidity locked in the pool
-        sia.join(0, 1e6);
+        sia.join(0, 1e8);
 
         max.join(0, joinAmt);
-
+        // Init PTs
         eve.swapIn(true, swapInAmt1);
-
+        // Exit everything besides Sia's seed liquidity
         max.exit(space.balanceOf(address(max)));
 
+        (, uint256[] memory balances, ) = vault.getPoolTokens(
+            space.getPoolId()
+        );
+
+        assertTrue(!((balances[0] == 0 || balances[0] == 1) && (balances[1] == 0 || balances[1] == 1)));
+
+        // Re-join all of Max's liquidity
         max.join(joinAmt, joinAmt);
+        // Swap in succeeds
         eve.swapIn(true, swapInAmt2);
     }
 
