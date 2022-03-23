@@ -784,6 +784,171 @@ contract SpaceTest is Test {
         assertClose(_target.balanceOf(address(max)), jimTargetBalance, 1e6);
     }
 
+    function testDifferentDecimalsMinReserves() public {
+        // Set PT/YT to 8 decimals
+        MockDividerSpace divider = new MockDividerSpace(8);
+        // Set Target to 9 decima;s
+        MockAdapterSpace adapter = new MockAdapterSpace(9);
+        adapter.setScale(INIT_SCALE);
+        SpaceFactory spaceFactory = new SpaceFactory(
+            vault,
+            address(divider),
+            ts,
+            g1,
+            g2,
+            true
+        );
+        Space space = Space(spaceFactory.create(address(adapter), maturity));
+
+        (address _pt, , , , , , , , ) = MockDividerSpace(divider).series(
+            address(adapter),
+            maturity
+        );
+        ERC20Mintable pt = ERC20Mintable(_pt);
+        ERC20Mintable _target = ERC20Mintable(adapter.target());
+
+        User max = new User(vault, space, pt, _target);
+        _target.mint(address(max), 100e9);
+        pt.mint(address(max), 100e8);
+
+        User eve = new User(vault, space, pt, _target);
+        _target.mint(address(eve), 100e9);
+        pt.mint(address(eve), 100e8);
+
+        max.join(0, 5e9);
+
+        // Init the PT side of the pool
+        eve.swapIn(true, 1e8);
+
+        // Swaps work
+        eve.swapIn(true, 1e8);
+        eve.swapOut(false, 1e8);
+             emit log_named_uint("bpt", space.totalSupply());
+
+        // Exit everything
+        max.exit(space.balanceOf(address(max)));
+        (, uint256[] memory balances, ) = vault.getPoolTokens(
+            space.getPoolId()
+        );
+
+        // Reserves get stripped down to 1:1 due to downscaling
+        assertEq(balances[0], 1);
+        assertEq(balances[1], 1);
+             emit log_named_uint("bpt", space.totalSupply());
+
+        max.join(5e8, 5e9);
+
+        (, balances, ) = vault.getPoolTokens(
+            space.getPoolId()
+        );
+        // Reserves are now equal, regardless of differences in decimals
+        assertEq(balances[0], 500000001);
+        assertEq(balances[1], 500000001);
+
+        emit log_named_uint("bpt", space.totalSupply());
+
+        // Swaps are borked
+        vm.expectRevert("BAL#001");
+        eve.swapIn(true, 1e8);
+
+        // BPT is just a multiple of the reserves on both sides, disconnected from the YS invariant
+        assertEq(space.totalSupply(), 500000001000000);
+    }
+
+    // companion test to testSmallDecimalsGuardInvalidState, the only difference is that Sia does not join any liquidity
+    function testFailSmallDecimalsGuardInvalidState(uint64 joinAmt, uint64 swapInAmt1, uint64 swapInAmt2) public {
+        vm.assume(joinAmt / 2 > swapInAmt1);
+        vm.assume(swapInAmt1 / 2 > swapInAmt2);
+        // No tiny swaps
+        vm.assume(swapInAmt2 >= 1e7);
+
+        MockDividerSpace divider = new MockDividerSpace(8);
+        MockAdapterSpace adapter = new MockAdapterSpace(8);
+        adapter.setScale(INIT_SCALE);
+        SpaceFactory spaceFactory = new SpaceFactory(
+            vault,
+            address(divider),
+            ts,
+            g1,
+            g2,
+            true
+        );
+        Space space = Space(spaceFactory.create(address(adapter), maturity));
+
+        (address _pt, , , , , , , , ) = MockDividerSpace(divider).series(
+            address(adapter),
+            maturity
+        );
+        ERC20Mintable pt = ERC20Mintable(_pt);
+        ERC20Mintable _target = ERC20Mintable(adapter.target());
+
+        User max = new User(vault, space, pt, _target);
+        _target.mint(address(max), uint256(joinAmt) * 2);
+        pt.mint(address(max),  uint256(joinAmt) * 2);
+
+        User eve = new User(vault, space, pt, _target);
+        pt.mint(address(eve), swapInAmt1 + swapInAmt2);
+
+        max.join(0, joinAmt);
+
+        eve.swapIn(true, swapInAmt1);
+
+        max.exit(space.balanceOf(address(max)));
+
+        max.join(joinAmt, joinAmt);
+        eve.swapIn(true, swapInAmt2);
+    }
+
+    // companion test to testFailSmallDecimalNoLockedLiquidity, the only difference is that Sia keeps a tiny amount of liquidity locked in the pool
+    function testSmallDecimalsGuardInvalidState(uint64 joinAmt, uint64 swapInAmt1, uint64 swapInAmt2) public {
+        vm.assume(joinAmt / 2 > swapInAmt1);
+        vm.assume(swapInAmt1 / 2 > swapInAmt2);
+        // No tiny swaps
+        vm.assume(swapInAmt2 >= 1e7);
+
+        MockDividerSpace divider = new MockDividerSpace(8);
+        MockAdapterSpace adapter = new MockAdapterSpace(8);
+        adapter.setScale(INIT_SCALE);
+        SpaceFactory spaceFactory = new SpaceFactory(
+            vault,
+            address(divider),
+            ts,
+            g1,
+            g2,
+            true
+        );
+        Space space = Space(spaceFactory.create(address(adapter), maturity));
+
+        (address _pt, , , , , , , , ) = MockDividerSpace(divider).series(
+            address(adapter),
+            maturity
+        );
+        ERC20Mintable pt = ERC20Mintable(_pt);
+        ERC20Mintable _target = ERC20Mintable(adapter.target());
+
+        User max = new User(vault, space, pt, _target);
+        _target.mint(address(max), uint256(joinAmt) * 2);
+        pt.mint(address(max),  uint256(joinAmt) * 2);
+
+        User eve = new User(vault, space, pt, _target);
+        pt.mint(address(eve), swapInAmt1 + swapInAmt2);
+
+        User sia = new User(vault, space, pt, _target);
+        _target.mint(address(sia), 1e6);
+
+        // Sia keeps a little seed liquidity locked in the pool
+        sia.join(0, 1e6);
+
+        max.join(0, joinAmt);
+
+        eve.swapIn(true, swapInAmt1);
+
+        max.exit(space.balanceOf(address(max)));
+
+        max.join(joinAmt, joinAmt);
+        eve.swapIn(true, swapInAmt2);
+    }
+
     function testNonMonotonicScale() public {
         adapter.setScale(1e18);
         jim.join(0, 10e18);
