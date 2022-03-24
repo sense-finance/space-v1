@@ -11,7 +11,7 @@ High-level notes and user journeys are available in the Sense docs [here](https:
 | Chain   | Address                                                                                                                                        |
 | ------- | ------------------------------------------------------------------------------------------------------------------------- |
 | Mainnet | [0x984682770f1EED90C00cd57B06b151EC12e7c51C](https://etherscan.io/address/0x984682770f1EED90C00cd57B06b151EC12e7c51C#code)                     |
-| Goerli  | [0xfa1779ed7B384879D36d628564913f141ed930C4](https://kovan.etherscan.io/address/0xfa1779ed7B384879D36d628564913f141ed930C4#code)      
+| Goerli  | [0xfa1779ed7B384879D36d628564913f141ed930C4](https://goerli.etherscan.io/address/0xfa1779ed7B384879D36d628564913f141ed930C4#code)
 
 ## Development
 
