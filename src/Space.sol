@@ -83,7 +83,11 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
 
     /// @notice Yieldspace config, passed in from the Space Factory
     uint256 public immutable ts;
+
+    /// @notice Yieldspace config indicating how much to discount the effective interest when swapping Target to PT.
     uint256 public immutable g1;
+
+    /// @notice Yieldspace config indicating how much to mark the effective interest up when swapping PT to Target.
     uint256 public immutable g2;
 
     /* ========== INTERNAL IMMUTABLES ========== */
