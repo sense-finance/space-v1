@@ -7,3 +7,6 @@
 [submodule "lib/sense-v1"]
 	path = lib/sense-v1
 	url = https://github.com/sense-finance/sense-v1/
+[submodule "lib/forge-std"]
+	path = lib/forge-std
+	url = https://github.com/brockelmore/forge-std
