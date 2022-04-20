@@ -3,24 +3,24 @@ pragma solidity ^0.7.0;
 pragma experimental ABIEncoderV2;
 
 // Testing utils
-import {DSTest} from "@sense-finance/v1-core/src/tests/test-helpers/test.sol";
-import {MockDividerSpace, MockAdapterSpace, ERC20Mintable} from "./utils/Mocks.sol";
-import {VM} from "./utils/VM.sol";
-import {User} from "./utils/User.sol";
+import { DSTest } from "@sense-finance/v1-core/src/tests/test-helpers/test.sol";
+import { MockDividerSpace, MockAdapterSpace, ERC20Mintable } from "./utils/Mocks.sol";
+import { Vm } from "forge-std/Vm.sol";
+import { User } from "./utils/User.sol";
 
 // External references
-import {Vault, IVault, IWETH, IAuthorizer, IAsset, IProtocolFeesCollector} from "@balancer-labs/v2-vault/contracts/Vault.sol";
-import {IPoolSwapStructs} from "@balancer-labs/v2-vault/contracts/interfaces/IPoolSwapStructs.sol";
-import {Authentication} from "@balancer-labs/v2-solidity-utils/contracts/helpers/Authentication.sol";
-import {IERC20} from "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/IERC20.sol";
-import {Authorizer} from "@balancer-labs/v2-vault/contracts/Authorizer.sol";
-import {FixedPoint} from "@balancer-labs/v2-solidity-utils/contracts/math/FixedPoint.sol";
-import {IPriceOracle} from "../oracle/interfaces/IPriceOracle.sol";
+import { Vault, IVault, IWETH, IAuthorizer, IAsset, IProtocolFeesCollector } from "@balancer-labs/v2-vault/contracts/Vault.sol";
+import { IPoolSwapStructs } from "@balancer-labs/v2-vault/contracts/interfaces/IPoolSwapStructs.sol";
+import { Authentication } from "@balancer-labs/v2-solidity-utils/contracts/helpers/Authentication.sol";
+import { IERC20 } from "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/IERC20.sol";
+import { Authorizer } from "@balancer-labs/v2-vault/contracts/Authorizer.sol";
+import { FixedPoint } from "@balancer-labs/v2-solidity-utils/contracts/math/FixedPoint.sol";
+import { IPriceOracle } from "../oracle/interfaces/IPriceOracle.sol";
 
 // Internal references
-import {SpaceFactory} from "../SpaceFactory.sol";
-import {Space} from "../Space.sol";
-import {Errors} from "../Errors.sol";
+import { SpaceFactory } from "../SpaceFactory.sol";
+import { Space } from "../Space.sol";
+import { Errors } from "../Errors.sol";
 
 // Base DSTest plus a few extra features
 contract Test is DSTest {
@@ -60,7 +60,7 @@ contract Test is DSTest {
 contract SpaceTest is Test {
     using FixedPoint for uint256;
 
-    VM internal constant vm = VM(HEVM_ADDRESS);
+    Vm internal constant vm = Vm(HEVM_ADDRESS);
     IWETH internal constant weth =
         IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
     uint256 public constant INTIAL_USER_BALANCE = 100e18;
@@ -853,7 +853,8 @@ contract SpaceTest is Test {
         assertEq(space.totalSupply(), 500000001000000);
     }
 
-    // companion test to testSmallDecimalsGuardInvalidState, the primary difference is that Sia does not join any liquidity
+    // Companion test to testSmallDecimalsGuardInvalidState, the primary difference is that Sia does not join any liquidity
+    // Testing that, without a small amount of liquidity kept in the Pool, the Pool can enter an invalid state with low decimal tokens
     function testFailSmallDecimalsGuardInvalidState(uint64 joinAmt, uint64 swapInAmt1, uint64 swapInAmt2) public {
         vm.assume(joinAmt / 2 > swapInAmt1);
         vm.assume(swapInAmt1 / 2 > swapInAmt2);
@@ -902,7 +903,8 @@ contract SpaceTest is Test {
         eve.swapIn(true, swapInAmt2);
     }
 
-    // companion test to testFailSmallDecimalNoLockedLiquidity, the primary difference is that Sia keeps a tiny amount of liquidity locked
+    // Companion test to testFailSmallDecimalNoLockedLiquidity, the primary difference is that Sia keeps a tiny amount of liquidity locked
+    // Testing that a small amount of liquidity kept in the Pool prevents the Pool from ever entering an invalid state
     function testSmallDecimalsGuardInvalidState(uint64 joinAmt, uint64 swapInAmt1, uint64 swapInAmt2) public {
         vm.assume(joinAmt / 2 > swapInAmt1);
         vm.assume(swapInAmt1 / 2 > swapInAmt2);
@@ -1312,5 +1314,72 @@ contract SpaceTest is Test {
         assertTrue(!isClose(spotBptValueFairPrice1, spotBptValueFairPrice2, 5e15));
     }
 
-    // testPriceNeverAboveOne
+    function testSmallDecimalsFirstJoinReserveCache() public {
+        uint8 DECIMALS = 8;
+        uint256 BASE_UNIT = 10 ** DECIMALS;
+        (, , Space space, User[] memory users) = _initPoolAndUsers(DECIMALS, BASE_UNIT);
+        User jim = users[0];
+
+        vm.record();
+        // 1. Join 1 unit of Target into the pool
+        jim.join(0, BASE_UNIT);
+        (, bytes32[] memory writes) = vm.accesses(address(space));
+
+        // Get the values for the internal cached reserves, which, becuase they're the last storage slots 
+        // updated on the first join, we do by checking the last two writes
+        uint256 lastToken0Reserve = uint256(vm.load(address(space), writes[writes.length - 1]));
+        uint256 lastToken1Reserve = uint256(vm.load(address(space), writes[writes.length - 2]));
+
+        // Check that both token reserves have been set to 1, normed to 18 decimals
+        assertEq(lastToken0Reserve, 1e18);
+        assertEq(lastToken1Reserve, 1e18);
+    }
+
+
+    // INTERNAL HELPERS ––––––––––––
+
+    function _initPoolAndUsers(uint8 targetDecimals, uint256 mintAmount)
+        internal returns (
+        address pt,
+        address target,
+        Space space,
+        User[] memory users
+    ) {
+        MockDividerSpace divider = new MockDividerSpace(targetDecimals);
+        MockAdapterSpace adapter = new MockAdapterSpace(targetDecimals);
+        SpaceFactory spaceFactory = new SpaceFactory(
+            vault,
+            address(divider),
+            ts,
+            g1,
+            g2,
+            true
+        );
+        space = Space(spaceFactory.create(address(adapter), maturity));
+
+        (pt, , , , , , , , ) = MockDividerSpace(divider).series(
+            address(adapter),
+            maturity
+        );
+        target = adapter.target();
+
+        User user1 = new User(vault, space, ERC20Mintable(pt), ERC20Mintable(target));
+        ERC20Mintable(target).mint(address(user1), mintAmount);
+        ERC20Mintable(pt).mint(address(user1), mintAmount);
+
+        User user2 = new User(vault, space, ERC20Mintable(pt), ERC20Mintable(target));
+        ERC20Mintable(target).mint(address(user2), mintAmount);
+        ERC20Mintable(pt).mint(address(user2), mintAmount);
+
+        User user3 = new User(vault, space, ERC20Mintable(pt), ERC20Mintable(target));
+        ERC20Mintable(target).mint(address(user3), mintAmount);
+        ERC20Mintable(pt).mint(address(user3), mintAmount);
+        users = new User[](3);
+        users[0] = user1;
+        users[1] = user2;
+        users[2] = user2;
+    }
+
+
+    // protocol fees
 }

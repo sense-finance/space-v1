@@ -3,24 +3,24 @@ pragma solidity ^0.7.0;
 pragma experimental ABIEncoderV2;
 
 // Testing utils
-import {DSTest} from "@sense-finance/v1-core/src/tests/test-helpers/test.sol";
-import {MockDividerSpace, MockAdapterSpace, ERC20Mintable} from "./utils/Mocks.sol";
-import {VM} from "./utils/VM.sol";
+import { DSTest } from "@sense-finance/v1-core/src/tests/test-helpers/test.sol";
+import { MockDividerSpace, MockAdapterSpace, ERC20Mintable } from "./utils/Mocks.sol";
+import { Vm } from "forge-std/Vm.sol";
 
 // External references
-import {Vault, IVault, IWETH} from "@balancer-labs/v2-vault/contracts/Vault.sol";
-import {Authorizer} from "@balancer-labs/v2-vault/contracts/Authorizer.sol";
-import {FixedPoint} from "@balancer-labs/v2-solidity-utils/contracts/math/FixedPoint.sol";
+import { Vault, IVault, IWETH } from "@balancer-labs/v2-vault/contracts/Vault.sol";
+import { Authorizer } from "@balancer-labs/v2-vault/contracts/Authorizer.sol";
+import { FixedPoint } from "@balancer-labs/v2-solidity-utils/contracts/math/FixedPoint.sol";
 
 // Internal references
-import {SpaceFactory} from "../SpaceFactory.sol";
-import {Space} from "../Space.sol";
-import {Errors} from "../Errors.sol";
+import { SpaceFactory } from "../SpaceFactory.sol";
+import { Space } from "../Space.sol";
+import { Errors } from "../Errors.sol";
 
 contract SpaceFactoryTest is DSTest {
     using FixedPoint for uint256;
 
-    VM internal constant vm = VM(HEVM_ADDRESS);
+    Vm internal constant vm = Vm(HEVM_ADDRESS);
     IWETH internal constant weth =
         IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
 
