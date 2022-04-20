@@ -3,7 +3,7 @@ pragma solidity ^0.7.0;
 pragma experimental ABIEncoderV2;
 
 // Testing utils
-import {DSTest} from "@sense-finance/v1-core/src/tests/test-helpers/DSTest.sol";
+import {DSTest} from "@sense-finance/v1-core/src/tests/test-helpers/test.sol";
 import {MockDividerSpace, MockAdapterSpace, ERC20Mintable} from "./utils/Mocks.sol";
 import {VM} from "./utils/VM.sol";
 
