@@ -167,6 +167,21 @@ contract SpaceTest is Test {
         assertEq(pool.g2(), g2);
         assertEq(pool.name(), "3rd July 1970 Target Token Space LP");
         assertEq(pool.symbol(), "Space-LP-TT:03-07-1970");
+
+        // Test Space deployment with a recent maturity
+        maturity = 1650499200; // 21-04-2022:00:00:00 UTC
+        pool = new Space(
+            vault,
+            address(adapter),
+            maturity,
+            pt,
+            ts,
+            g1,
+            g2,
+            true
+        );
+        assertEq(pool.name(), "21st Apr 2022 Target Token Space LP");
+        assertEq(pool.symbol(), "Space-LP-TT:21-04-2022");
     }
 
     function testJoinOnce() public {
