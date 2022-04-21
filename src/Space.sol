@@ -13,6 +13,7 @@ import { IMinimalSwapInfoPool } from "@balancer-labs/v2-vault/contracts/interfac
 import { IVault } from "@balancer-labs/v2-vault/contracts/interfaces/IVault.sol";
 import { IERC20 } from "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/IERC20.sol";
 
+import { DateTime } from "./utils/DateTime.sol";
 import { Errors, _require } from "./Errors.sol";
 import { PoolPriceOracle } from "./oracle/PoolPriceOracle.sol";
 
@@ -134,7 +135,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         uint256 _g1,
         uint256 _g2,
         bool _oracleEnabled
-    ) BalancerPoolToken(AdapterLike(_adapter).name(), AdapterLike(_adapter).symbol()) {
+    ) BalancerPoolToken(_name(_adapter, _maturity), _symbol(_adapter, _maturity)) {
         bytes32 poolId = vault.registerPool(IVault.PoolSpecialization.TWO_TOKEN);
 
         address target = AdapterLike(_adapter).target();
@@ -794,6 +795,19 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     function _downscaleUpArray(uint256[] memory amounts) internal view {
         amounts[pti] = BasicMath.divUp(amounts[pti], _scalingFactor(true));
         amounts[1 - pti] = BasicMath.divUp(amounts[1 - pti], _scalingFactor(false));
+    }
+
+    /* ========== INTERNAL UTILS ========== */
+
+    function _name(address _adapter, uint256 _maturity) internal returns (string memory name) {
+        string memory date = DateTime.format(_maturity);
+        name = string(abi.encodePacked(date, " ", ERC20(AdapterLike(_adapter).target()).name(), " Space LP"));
+    }
+
+    function _symbol(address _adapter, uint256 _maturity) internal returns (string memory symbol) {
+        (string memory d, string memory m, string memory y) = DateTime.toDateString(_maturity);
+        string memory datestring = string(abi.encodePacked(d, "-", m, "-", y));
+        symbol = string(abi.encodePacked("Space-LP-", ERC20(AdapterLike(_adapter).target()).symbol(), ":", datestring));
     }
 
     /* ========== MODIFIERS ========== */

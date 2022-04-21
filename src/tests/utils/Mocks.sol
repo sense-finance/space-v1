@@ -34,7 +34,7 @@ contract MockAdapterSpace {
     string public name = "Adapter";
 
     constructor(uint8 targetDecimals) public {
-        ERC20Mintable _target = new ERC20Mintable("underlying", "underlying", targetDecimals);
+        ERC20Mintable _target = new ERC20Mintable("Target Token", "TT", targetDecimals);
         target = address(_target);
         start = block.timestamp;
     }
