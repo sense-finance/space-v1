@@ -22,42 +22,7 @@ import {SpaceFactory} from "../SpaceFactory.sol";
 import {Space} from "../Space.sol";
 import {Errors} from "../Errors.sol";
 
-// Base DSTest plus a few extra features
-contract Test is DSTest {
-    function assertClose(
-        uint256 a,
-        uint256 b,
-        uint256 _tolerance
-    ) public {
-        bool _isClose = isClose(a, b, _tolerance);
-        if (!_isClose) {
-            emit log("Error: abs(a, b) < tolerance not satisfied [uint]");
-            emit log_named_uint("  Expected", b);
-            emit log_named_uint("  Tolerance", _tolerance);
-            emit log_named_uint("    Actual", a);
-            fail();
-        }
-    }
-
-    function isClose(
-        uint256 a,
-        uint256 b,
-        uint256 _tolerance
-    ) public view returns (bool) {
-        uint256 diff = a < b ? b - a : a - b;
-        return diff <= _tolerance;
-    }
-
-    function fuzzWithBounds(
-        uint256 amount,
-        uint256 lBound,
-        uint256 uBound
-    ) internal returns (uint256) {
-        return lBound + (amount % (uBound - lBound));
-    }
-}
-
-contract SpaceTest is Test {
+contract SpaceTest is DSTest {
     using FixedPoint for uint256;
 
     VM internal constant vm = VM(HEVM_ADDRESS);
