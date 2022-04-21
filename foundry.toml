@@ -3,3 +3,11 @@ src = 'src'
 out = 'out'
 libs = ['lib']
 verbosity = 3
+remappings = [
+    'ds-test/=lib/ds-test/src/',
+    '@balancer-labs/v2-solidity-utils/=lib/balancer-v2-monorepo/pkg/solidity-utils/',
+    '@balancer-labs/v2-pool-utils/=lib/balancer-v2-monorepo/pkg/pool-utils/',
+    '@balancer-labs/v2-vault/=lib/balancer-v2-monorepo/pkg/vault/',
+    '@sense-finance/v1-core/=lib/sense-v1/pkg/core/',
+    '@sense-finance/v1-utils/=lib/sense-v1/pkg/utils/'
+]

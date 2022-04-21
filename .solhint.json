@@ -6,6 +6,7 @@
       "const-name-snakecase": "off",
       "not-rely-on-time": "off",
       "avoid-low-level-calls": "off",
-      "no-inline-assembly": "off"
+      "no-inline-assembly": "off",
+      "var-name-mixedcase": "off"
     }
   }
