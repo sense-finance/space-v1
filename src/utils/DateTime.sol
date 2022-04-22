@@ -2,10 +2,10 @@ pragma solidity ^0.7.0;
 
 /// @author Taken from: https://github.com/bokkypoobah/BokkyPooBahsDateTimeLibrary
 library DateTime {
-    uint256 constant SECONDS_PER_DAY = 24 * 60 * 60;
-    uint256 constant SECONDS_PER_HOUR = 60 * 60;
-    uint256 constant SECONDS_PER_MINUTE = 60;
-    int256 constant OFFSET19700101 = 2440588;
+    uint256 public constant SECONDS_PER_DAY = 24 * 60 * 60;
+    uint256 public constant SECONDS_PER_HOUR = 60 * 60;
+    uint256 public constant SECONDS_PER_MINUTE = 60;
+    int256 public constant OFFSET19700101 = 2440588;
 
     function timestampToDate(uint256 timestamp)
         internal
