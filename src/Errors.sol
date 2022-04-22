@@ -70,8 +70,6 @@ function _revert(uint256 errorCode) pure {
 library Errors {
     // Space (using error codes as Space uses ^0.7.0)
     uint256 internal constant CALLER_NOT_VAULT = 100;
-    uint256 internal constant INVALID_G1 = 101;
-    uint256 internal constant INVALID_G2 = 102;
     uint256 internal constant INVALID_POOL_ID = 103;
     uint256 internal constant POOL_ALREADY_DEPLOYED = 104;
     uint256 internal constant POOL_PAST_MATURITY = 105;

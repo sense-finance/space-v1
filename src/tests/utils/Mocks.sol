@@ -6,6 +6,7 @@ pragma experimental ABIEncoderV2;
 import { Vault, IVault, IWETH, IAuthorizer, IAsset } from "@balancer-labs/v2-vault/contracts/Vault.sol";
 import { Authorizer } from "@balancer-labs/v2-vault/contracts/Authorizer.sol";
 import { ERC20 } from "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/ERC20.sol";
+import {FixedPoint} from "@balancer-labs/v2-solidity-utils/contracts/math/FixedPoint.sol";
 
 // Internal references
 import { DividerLike } from "../../SpaceFactory.sol";
@@ -26,17 +27,30 @@ contract ERC20Mintable is ERC20 {
 
 // named Space to avoid name collision
 contract MockAdapterSpace {
+    using FixedPoint for uint256;
+
     uint256 internal _scale;
     uint256 public scaleStored;
     address public target;
     uint256 public start;
     string public symbol = "ADP";
     string public name = "Adapter";
+    uint256 public ts;
+    uint256 public g1;
+    uint256 public g2;
+    bool public oracleEnabled;
 
     constructor(uint8 targetDecimals) public {
         ERC20Mintable _target = new ERC20Mintable("underlying", "underlying", targetDecimals);
         target = address(_target);
         start = block.timestamp;
+
+        ts = FixedPoint.ONE.divDown(FixedPoint.ONE * 31622400 * 10); // 1 / 10 year in seconds
+        // 0.95 for selling Target
+        g1 = (FixedPoint.ONE * 950).divDown(FixedPoint.ONE * 1000);
+        // 1 / 0.95 for selling PT
+        g2 = (FixedPoint.ONE * 1000).divDown(FixedPoint.ONE * 950);
+        oracleEnabled = true;
     }
 
     function scale() external returns (uint256) {
@@ -48,6 +62,46 @@ contract MockAdapterSpace {
     function setScale(uint256 scale_) external returns (uint256) {
         _scale = scale_;
         scaleStored = scale_;
+    }
+
+    function adapterParams()
+        external
+        virtual
+        returns (
+            address,
+            address,
+            uint256,
+            uint256,
+            uint256,
+            uint64,
+            uint48,
+            uint16,
+            uint256,
+            uint256,
+            uint256,
+            bool
+        ) {
+            return (
+                address(0),
+                address(0),
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                ts,
+                g1,
+                g2,
+                oracleEnabled
+            );
+        }
+    
+    function setSpaceParams(uint256 _ts, uint256 _g1, uint256 _g2, bool _oracleEnabled) external {
+        ts = _ts;
+        g1 = _g1;
+        g2 = _g2;
+        oracleEnabled = _oracleEnabled;
     }
 }
 

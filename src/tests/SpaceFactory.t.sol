@@ -32,10 +32,6 @@ contract SpaceFactoryTest is DSTest {
     uint256 internal maturity2;
     uint256 internal maturity3;
 
-    uint256 internal ts;
-    uint256 internal g1;
-    uint256 internal g2;
-
     function setUp() public {
         // Init normalized starting conditions
         vm.warp(0);
@@ -45,26 +41,13 @@ contract SpaceFactoryTest is DSTest {
         divider = new MockDividerSpace(18);
         adapter = new MockAdapterSpace(18);
 
-        ts = FixedPoint.ONE.divDown(FixedPoint.ONE * 31622400); // 1 / 1 year in seconds
-        // 0.95 for selling Target
-        g1 = (FixedPoint.ONE * 950).divDown(FixedPoint.ONE * 1000);
-        // 1 / 0.95 for selling PTs
-        g2 = (FixedPoint.ONE * 1000).divDown(FixedPoint.ONE * 950);
-
         maturity1 = 15811200; // 6 months in seconds
         maturity2 = 31560000; // 1 yarn in seconds
         maturity3 = 63120000; // 2 years in seconds
 
         Authorizer authorizer = new Authorizer(address(this));
         vault = new Vault(authorizer, weth, 0, 0);
-        spaceFactory = new SpaceFactory(
-            vault,
-            address(divider),
-            ts,
-            g1,
-            g2,
-            true
-        );
+        spaceFactory = new SpaceFactory(vault, address(divider));
     }
 
     function testCreatePool() public {
@@ -77,41 +60,6 @@ contract SpaceFactoryTest is DSTest {
             fail();
         } catch Error(string memory error) {
             assertEq(error, Errors.POOL_ALREADY_DEPLOYED);
-        }
-    }
-
-    function testSetParams() public {
-        Space space = Space(spaceFactory.create(address(adapter), maturity1));
-
-        // Sanity check that params set in constructor are used
-        assertEq(space.ts(), ts);
-        assertEq(space.g1(), g1);
-        assertEq(space.g2(), g2);
-
-        ts = FixedPoint.ONE.divDown(FixedPoint.ONE * 100);
-        g1 = (FixedPoint.ONE * 900).divDown(FixedPoint.ONE * 1000);
-        g2 = (FixedPoint.ONE * 1000).divDown(FixedPoint.ONE * 900);
-        spaceFactory.setParams(ts, g1, g2, true);
-        space = Space(spaceFactory.create(address(adapter), maturity2));
-
-        // If params are updated, the new ones are used in the next deployment
-        assertEq(space.ts(), ts);
-        assertEq(space.g1(), g1);
-        assertEq(space.g2(), g2);
-
-        // Fee params are validated
-        g1 = (FixedPoint.ONE * 1000).divDown(FixedPoint.ONE * 900);
-        try spaceFactory.setParams(ts, g1, g2, true) {
-            fail();
-        } catch Error(string memory error) {
-            assertEq(error, Errors.INVALID_G1);
-        }
-        g1 = (FixedPoint.ONE * 900).divDown(FixedPoint.ONE * 1000);
-        g2 = (FixedPoint.ONE * 900).divDown(FixedPoint.ONE * 1000);
-        try spaceFactory.setParams(ts, g1, g2, true) {
-            fail();
-        } catch Error(string memory error) {
-            assertEq(error, Errors.INVALID_G2);
         }
     }
 }
