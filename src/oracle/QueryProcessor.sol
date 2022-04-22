@@ -62,9 +62,22 @@ library QueryProcessor {
     ) external view returns (uint256) {
         _require(query.secs != 0, Errors.ORACLE_BAD_SECS);
 
-        int256 beginAccumulator = getPastAccumulator(samples, query.variable, latestIndex, query.ago + query.secs);
-        int256 endAccumulator = getPastAccumulator(samples, query.variable, latestIndex, query.ago);
-        return LogCompression.fromLowResLog((endAccumulator - beginAccumulator) / int256(query.secs));
+        int256 beginAccumulator = getPastAccumulator(
+            samples,
+            query.variable,
+            latestIndex,
+            query.ago + query.secs
+        );
+        int256 endAccumulator = getPastAccumulator(
+            samples,
+            query.variable,
+            latestIndex,
+            query.ago
+        );
+        return
+            LogCompression.fromLowResLog(
+                (endAccumulator - beginAccumulator) / int256(query.secs)
+            );
     }
 
     /**
@@ -108,7 +121,9 @@ library QueryProcessor {
             // We can use unchecked arithmetic since the accumulator can be represented in 53 bits, timestamps in 31
             // bits, and the instant value in 22 bits.
             uint256 elapsed = lookUpTime - latestTimestamp;
-            return latestSample.accumulator(variable) + (latestSample.instant(variable) * int256(elapsed));
+            return
+                latestSample.accumulator(variable) +
+                (latestSample.instant(variable) * int256(elapsed));
         } else {
             // The look up time is before the latest sample, but we need to make sure that it is not before the oldest
             // sample as well.
@@ -134,11 +149,19 @@ library QueryProcessor {
                 }
 
                 // Finally check that the look up time is not previous to the oldest timestamp.
-                _require(oldestTimestamp <= lookUpTime, Errors.ORACLE_QUERY_TOO_OLD);
+                _require(
+                    oldestTimestamp <= lookUpTime,
+                    Errors.ORACLE_QUERY_TOO_OLD
+                );
             }
 
             // Perform binary search to find nearest samples to the desired timestamp.
-            (bytes32 prev, bytes32 next) = findNearestSample(samples, lookUpTime, oldestIndex, bufferLength);
+            (bytes32 prev, bytes32 next) = findNearestSample(
+                samples,
+                lookUpTime,
+                oldestIndex,
+                bufferLength
+            );
 
             // `next`'s timestamp is guaranteed to be larger than `prev`'s, so we can skip checked arithmetic.
             uint256 samplesTimeDiff = next.timestamp() - prev.timestamp();
@@ -149,9 +172,13 @@ library QueryProcessor {
 
                 // We can use unchecked arithmetic since the accumulators can be represented in 53 bits, and timestamps
                 // in 31 bits.
-                int256 samplesAccDiff = next.accumulator(variable) - prev.accumulator(variable);
+                int256 samplesAccDiff = next.accumulator(variable) -
+                    prev.accumulator(variable);
                 uint256 elapsed = lookUpTime - prev.timestamp();
-                return prev.accumulator(variable) + ((samplesAccDiff * int256(elapsed)) / int256(samplesTimeDiff));
+                return
+                    prev.accumulator(variable) +
+                    ((samplesAccDiff * int256(elapsed)) /
+                        int256(samplesTimeDiff));
             } else {
                 // Rarely, one of the samples will have the exact requested look up time, which is indicated by `prev`
                 // and `next` being the same. In this case, we simply return the accumulator at that point in time.
@@ -216,6 +243,9 @@ library QueryProcessor {
         }
 
         // In case we reach here, it means we didn't find exactly the sample we where looking for.
-        return sampleTimestamp < lookUpDate ? (sample, samples[mid.next()]) : (samples[mid.prev()], sample);
+        return
+            sampleTimestamp < lookUpDate
+                ? (sample, samples[mid.next()])
+                : (samples[mid.prev()], sample);
     }
 }

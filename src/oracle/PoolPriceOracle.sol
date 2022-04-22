@@ -86,8 +86,14 @@ abstract contract PoolPriceOracle is IPoolPriceOracle, IPriceOracle {
      *
      * `endIndex` is non-inclusive.
      */
-    function dirtyUninitializedOracleSamples(uint256 startIndex, uint256 endIndex) external {
-        _require(startIndex < endIndex && endIndex <= Buffer.SIZE, Errors.OUT_OF_BOUNDS);
+    function dirtyUninitializedOracleSamples(
+        uint256 startIndex,
+        uint256 endIndex
+    ) external {
+        _require(
+            startIndex < endIndex && endIndex <= Buffer.SIZE,
+            Errors.OUT_OF_BOUNDS
+        );
 
         // Uninitialized samples are identified by a zero timestamp -- all other fields are ignored,
         // so any non-zero value with a zero timestamp suffices.
@@ -101,12 +107,27 @@ abstract contract PoolPriceOracle is IPoolPriceOracle, IPriceOracle {
 
     // IPriceOracle
 
-    function getLargestSafeQueryWindow() external pure override returns (uint256) {
+    function getLargestSafeQueryWindow()
+        external
+        pure
+        override
+        returns (uint256)
+    {
         return 6.66 hours;
     }
 
-    function getLatest(Variable variable) external view override returns (uint256) {
-        return QueryProcessor.getInstantValue(_samples, variable, _getOracleIndex());
+    function getLatest(Variable variable)
+        external
+        view
+        override
+        returns (uint256)
+    {
+        return
+            QueryProcessor.getInstantValue(
+                _samples,
+                variable,
+                _getOracleIndex()
+            );
     }
 
     function getTimeWeightedAverage(OracleAverageQuery[] memory queries)
@@ -119,7 +140,11 @@ abstract contract PoolPriceOracle is IPoolPriceOracle, IPriceOracle {
         uint256 latestIndex = _getOracleIndex();
 
         for (uint256 i = 0; i < queries.length; ++i) {
-            results[i] = QueryProcessor.getTimeWeightedAverage(_samples, queries[i], latestIndex);
+            results[i] = QueryProcessor.getTimeWeightedAverage(
+                _samples,
+                queries[i],
+                latestIndex
+            );
         }
     }
 
@@ -135,7 +160,11 @@ abstract contract PoolPriceOracle is IPoolPriceOracle, IPriceOracle {
         OracleAccumulatorQuery memory query;
         for (uint256 i = 0; i < queries.length; ++i) {
             query = queries[i];
-            results[i] = _getPastAccumulator(query.variable, latestIndex, query.ago);
+            results[i] = _getPastAccumulator(
+                query.variable,
+                latestIndex,
+                query.ago
+            );
         }
     }
 
@@ -158,11 +187,17 @@ abstract contract PoolPriceOracle is IPoolPriceOracle, IPriceOracle {
         int256 logInvariant
     ) internal returns (uint256) {
         // Read latest sample, and compute the next one by updating it with the newly received data.
-        bytes32 sample = _getSample(latestIndex).update(logPairPrice, logBptPrice, logInvariant, block.timestamp);
+        bytes32 sample = _getSample(latestIndex).update(
+            logPairPrice,
+            logBptPrice,
+            logInvariant,
+            block.timestamp
+        );
 
         // We create a new sample if more than _MAX_SAMPLE_DURATION seconds have elapsed since the creation of the
         // latest one. In other words, no sample accumulates data over a period larger than _MAX_SAMPLE_DURATION.
-        bool newSample = block.timestamp - latestSampleCreationTimestamp >= _MAX_SAMPLE_DURATION;
+        bool newSample = block.timestamp - latestSampleCreationTimestamp >=
+            _MAX_SAMPLE_DURATION;
         latestIndex = newSample ? latestIndex.next() : latestIndex;
 
         // Store the updated or new sample.
@@ -176,7 +211,13 @@ abstract contract PoolPriceOracle is IPoolPriceOracle, IPriceOracle {
         uint256 latestIndex,
         uint256 ago
     ) internal view returns (int256) {
-        return QueryProcessor.getPastAccumulator(_samples, variable, latestIndex, ago);
+        return
+            QueryProcessor.getPastAccumulator(
+                _samples,
+                variable,
+                latestIndex,
+                ago
+            );
     }
 
     function _findNearestSample(
@@ -184,7 +225,13 @@ abstract contract PoolPriceOracle is IPoolPriceOracle, IPriceOracle {
         uint256 offset,
         uint256 length
     ) internal view returns (bytes32 prev, bytes32 next) {
-        return QueryProcessor.findNearestSample(_samples, lookUpDate, offset, length);
+        return
+            QueryProcessor.findNearestSample(
+                _samples,
+                lookUpDate,
+                offset,
+                length
+            );
     }
 
     /**

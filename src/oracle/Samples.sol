@@ -77,9 +77,15 @@ library Samples {
         // as 22 bit signed integers, we don't need to perform checked arithmetic.
 
         int256 elapsed = int256(currentTimestamp - timestamp(sample));
-        int256 accLogPairPrice = _accLogPairPrice(sample) + instLogPairPrice * elapsed;
-        int256 accLogBptPrice = _accLogBptPrice(sample) + instLogBptPrice * elapsed;
-        int256 accLogInvariant = _accLogInvariant(sample) + instLogInvariant * elapsed;
+        int256 accLogPairPrice = _accLogPairPrice(sample) +
+            instLogPairPrice *
+            elapsed;
+        int256 accLogBptPrice = _accLogBptPrice(sample) +
+            instLogBptPrice *
+            elapsed;
+        int256 accLogInvariant = _accLogInvariant(sample) +
+            instLogInvariant *
+            elapsed;
 
         return
             pack(
@@ -96,7 +102,11 @@ library Samples {
     /**
      * @dev Returns the instant value stored in `sample` for `variable`.
      */
-    function instant(bytes32 sample, IPriceOracle.Variable variable) internal pure returns (int256) {
+    function instant(bytes32 sample, IPriceOracle.Variable variable)
+        internal
+        pure
+        returns (int256)
+    {
         if (variable == IPriceOracle.Variable.PAIR_PRICE) {
             return _instLogPairPrice(sample);
         } else if (variable == IPriceOracle.Variable.BPT_PRICE) {
@@ -110,7 +120,11 @@ library Samples {
     /**
      * @dev Returns the accumulator value stored in `sample` for `variable`.
      */
-    function accumulator(bytes32 sample, IPriceOracle.Variable variable) internal pure returns (int256) {
+    function accumulator(bytes32 sample, IPriceOracle.Variable variable)
+        internal
+        pure
+        returns (int256)
+    {
         if (variable == IPriceOracle.Variable.PAIR_PRICE) {
             return _accLogPairPrice(sample);
         } else if (variable == IPriceOracle.Variable.BPT_PRICE) {
