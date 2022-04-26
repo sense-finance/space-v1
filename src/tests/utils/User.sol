@@ -11,10 +11,10 @@ import { ERC20Mintable } from "./Mocks.sol";
 import { Space } from "../../Space.sol";
 
 contract User {
-    Space space;
-    IVault vault;
-    ERC20Mintable pt;
-    ERC20Mintable target;
+    Space public space;
+    IVault public vault;
+    ERC20Mintable public pt;
+    ERC20Mintable public target;
 
     constructor(
         IVault _vault,

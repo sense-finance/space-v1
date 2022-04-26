@@ -146,6 +146,44 @@ contract SpaceTest is Test {
         sam = new User(vault, space, pt, target);
     }
 
+    function testDeployPoolHasParams() public {
+        address pt = MockDividerSpace(divider).pt(address(adapter), maturity);
+        Space pool = new Space(
+            vault,
+            address(adapter),
+            maturity,
+            pt,
+            ts,
+            g1,
+            g2,
+            true
+        );
+        uint256 pti = pt < address(target) ? 0 : 1;
+        assertEq(pool.adapter(), address(adapter));
+        assertEq(pool.maturity(), maturity);
+        assertEq(pool.pti(), pti);
+        assertEq(pool.ts(), ts);
+        assertEq(pool.g1(), g1);
+        assertEq(pool.g2(), g2);
+        assertEq(pool.name(), "3rd July 1970 Target Token Space LP");
+        assertEq(pool.symbol(), "Space-LP-TT:03-07-1970");
+
+        // Test Space deployment with a recent maturity
+        maturity = 1650499200; // 21-04-2022:00:00:00 UTC
+        pool = new Space(
+            vault,
+            address(adapter),
+            maturity,
+            pt,
+            ts,
+            g1,
+            g2,
+            true
+        );
+        assertEq(pool.name(), "21st Apr 2022 Target Token Space LP");
+        assertEq(pool.symbol(), "Space-LP-TT:21-04-2022");
+    }
+
     function testJoinOnce() public {
         jim.join();
 
@@ -155,7 +193,11 @@ contract SpaceTest is Test {
 
         // and it minted jim's account BPT tokens equal to the value of underlying
         // deposited (inital scale is 1e18, so it's one-to-one)
-        assertClose(space.balanceOf(address(jim)), uint256(1e18).mulDown(INIT_SCALE), 1e6);
+        assertClose(
+            space.balanceOf(address(jim)),
+            uint256(1e18).mulDown(INIT_SCALE),
+            1e6
+        );
 
         // but it did not move any PT
         assertEq(pt.balanceOf(address(jim)), 100e18);
@@ -172,7 +214,11 @@ contract SpaceTest is Test {
         assertEq(target.balanceOf(address(jim)), 98e18);
 
         // and it minted jim's account more BPT tokens
-        assertClose(space.balanceOf(address(jim)), uint256(2e18).mulDown(INIT_SCALE), 1e6);
+        assertClose(
+            space.balanceOf(address(jim)),
+            uint256(2e18).mulDown(INIT_SCALE),
+            1e6
+        );
 
         // but it still did not move any PT
         assertEq(pt.balanceOf(address(jim)), 100e18);
@@ -276,7 +322,10 @@ contract SpaceTest is Test {
         (, uint256[] memory balances, ) = vault.getPoolTokens(
             space.getPoolId()
         );
-        assertEq(balances[1 - space.pti()], space.MINIMUM_BPT().divDown(INIT_SCALE));
+        assertEq(
+            balances[1 - space.pti()],
+            space.MINIMUM_BPT().divDown(INIT_SCALE)
+        );
         vm.roll(2);
 
         // Pre-swap join uses target in times init_scale to determine the bpt given out
@@ -821,7 +870,7 @@ contract SpaceTest is Test {
         // Swaps work
         eve.swapIn(true, 1e8);
         eve.swapOut(false, 1e8);
-             emit log_named_uint("bpt", space.totalSupply());
+        emit log_named_uint("bpt", space.totalSupply());
 
         // Exit everything
         max.exit(space.balanceOf(address(max)));
@@ -832,13 +881,11 @@ contract SpaceTest is Test {
         // Reserves get stripped down to 1:1 due to downscaling
         assertEq(balances[0], 1);
         assertEq(balances[1], 1);
-             emit log_named_uint("bpt", space.totalSupply());
+        emit log_named_uint("bpt", space.totalSupply());
 
         max.join(5e8, 5e9);
 
-        (, balances, ) = vault.getPoolTokens(
-            space.getPoolId()
-        );
+        (, balances, ) = vault.getPoolTokens(space.getPoolId());
         // Reserves are now equal, regardless of differences in decimals
         assertEq(balances[0], 500000001);
         assertEq(balances[1], 500000001);
@@ -854,7 +901,11 @@ contract SpaceTest is Test {
     }
 
     // companion test to testSmallDecimalsGuardInvalidState, the primary difference is that Sia does not join any liquidity
-    function testFailSmallDecimalsGuardInvalidState(uint64 joinAmt, uint64 swapInAmt1, uint64 swapInAmt2) public {
+    function testFailSmallDecimalsGuardInvalidState(
+        uint64 joinAmt,
+        uint64 swapInAmt1,
+        uint64 swapInAmt2
+    ) public {
         vm.assume(joinAmt / 2 > swapInAmt1);
         vm.assume(swapInAmt1 / 2 > swapInAmt2);
         // No tiny swaps
@@ -881,7 +932,7 @@ contract SpaceTest is Test {
 
         User max = new User(vault, space, pt, _target);
         _target.mint(address(max), uint256(joinAmt) * 2);
-        pt.mint(address(max),  uint256(joinAmt) * 2);
+        pt.mint(address(max), uint256(joinAmt) * 2);
 
         User eve = new User(vault, space, pt, _target);
         pt.mint(address(eve), swapInAmt1 + swapInAmt2);
@@ -894,7 +945,10 @@ contract SpaceTest is Test {
             space.getPoolId()
         );
 
-        assertTrue(!((balances[0] == 0 || balances[0] == 1) && (balances[1] == 0 || balances[1] == 1)));
+        assertTrue(
+            !((balances[0] == 0 || balances[0] == 1) &&
+                (balances[1] == 0 || balances[1] == 1))
+        );
 
         // Even though max re-joins all of his liquidity again...
         max.join(joinAmt, joinAmt);
@@ -903,7 +957,11 @@ contract SpaceTest is Test {
     }
 
     // companion test to testFailSmallDecimalNoLockedLiquidity, the primary difference is that Sia keeps a tiny amount of liquidity locked
-    function testSmallDecimalsGuardInvalidState(uint64 joinAmt, uint64 swapInAmt1, uint64 swapInAmt2) public {
+    function testSmallDecimalsGuardInvalidState(
+        uint64 joinAmt,
+        uint64 swapInAmt1,
+        uint64 swapInAmt2
+    ) public {
         vm.assume(joinAmt / 2 > swapInAmt1);
         vm.assume(swapInAmt1 / 2 > swapInAmt2);
         // No tiny swaps
@@ -929,7 +987,7 @@ contract SpaceTest is Test {
 
         User max = new User(vault, space, ERC20Mintable(_pt), _target);
         _target.mint(address(max), uint256(joinAmt) * 2);
-        ERC20Mintable(_pt).mint(address(max),  uint256(joinAmt) * 2);
+        ERC20Mintable(_pt).mint(address(max), uint256(joinAmt) * 2);
 
         User eve = new User(vault, space, ERC20Mintable(_pt), _target);
         ERC20Mintable(_pt).mint(address(eve), swapInAmt1 + swapInAmt2);
@@ -950,7 +1008,10 @@ contract SpaceTest is Test {
             space.getPoolId()
         );
 
-        assertTrue(!((balances[0] == 0 || balances[0] == 1) && (balances[1] == 0 || balances[1] == 1)));
+        assertTrue(
+            !((balances[0] == 0 || balances[0] == 1) &&
+                (balances[1] == 0 || balances[1] == 1))
+        );
 
         // Re-join all of Max's liquidity
         max.join(joinAmt, joinAmt);
@@ -1136,19 +1197,47 @@ contract SpaceTest is Test {
     function testImpliedRateFromPriceUtil() public {
         adapter.setScale(1e18);
         // Compare to implied rates calculated externally
-        assertClose(space.getImpliedRateFromPrice(0.5e18), 1048575000000000000000000, 1e18);
-        assertClose(space.getImpliedRateFromPrice(0.9e18), 7225263339969966000, 1e18);
-        assertClose(space.getImpliedRateFromPrice(0.98e18), 497885049771156200, 1e18);
+        assertClose(
+            space.getImpliedRateFromPrice(0.5e18),
+            1048575000000000000000000,
+            1e18
+        );
+        assertClose(
+            space.getImpliedRateFromPrice(0.9e18),
+            7225263339969966000,
+            1e18
+        );
+        assertClose(
+            space.getImpliedRateFromPrice(0.98e18),
+            497885049771156200,
+            1e18
+        );
 
         // Warp halfway through the term
         vm.warp(7905600);
-        assertClose(space.getImpliedRateFromPrice(0.9e18), 66654957011853880000, 1e18);
-        assertClose(space.getImpliedRateFromPrice(0.98e18), 1243659622327939600, 1e18);
+        assertClose(
+            space.getImpliedRateFromPrice(0.9e18),
+            66654957011853880000,
+            1e18
+        );
+        assertClose(
+            space.getImpliedRateFromPrice(0.98e18),
+            1243659622327939600,
+            1e18
+        );
 
         // Warp 7/8ths of the way through the term
         vm.warp(13834800);
-        assertClose(space.getImpliedRateFromPrice(0.9e18), 20950696665886087000000000, 1e18);
-        assertClose(space.getImpliedRateFromPrice(0.98e18), 24341241586778587000, 1e18);
+        assertClose(
+            space.getImpliedRateFromPrice(0.9e18),
+            20950696665886087000000000,
+            1e18
+        );
+        assertClose(
+            space.getImpliedRateFromPrice(0.98e18),
+            24341241586778587000,
+            1e18
+        );
 
         vm.warp(maturity);
         assertEq(space.getImpliedRateFromPrice(0.9e18), 0);
@@ -1156,7 +1245,11 @@ contract SpaceTest is Test {
         vm.warp(0);
         // Try a different scale
         adapter.setScale(2e18);
-        assertClose(space.getImpliedRateFromPrice(0.45e18), 7225263339969966000, 1e18);
+        assertClose(
+            space.getImpliedRateFromPrice(0.45e18),
+            7225263339969966000,
+            1e18
+        );
     }
 
     function testPriceFromImpliedRateUtil() public {
@@ -1214,7 +1307,6 @@ contract SpaceTest is Test {
             0.98e18,
             1e14
         );
-
 
         vm.warp(maturity);
         assertEq(space.getPriceFromImpliedRate(0.1e18), 1e18);
@@ -1276,13 +1368,12 @@ contract SpaceTest is Test {
             .add(balances[1 - space.pti()])
             .divDown(space.totalSupply());
 
-        // Since the oracle price and the current spot price are the same, 
+        // Since the oracle price and the current spot price are the same,
         // they fair equilibrium BPT price should be very close the actual spot BPT price
         assertClose(spotBptValueFairPrice1, theoFairBptValue1, 1e14);
 
-
-        // Swapping in within the same block as the last join won't update the oracle 
-        // (max of one price stored per block), 
+        // Swapping in within the same block as the last join won't update the oracle
+        // (max of one price stored per block),
         // but it will update the spot reserves
         sid.swapIn(true, 4e18);
 
@@ -1301,15 +1392,15 @@ contract SpaceTest is Test {
         // So the theoretical BPT equilibrium price has not changed much
         assertClose(theoFairBptValue1, theoFairBptValue2, 2e15);
         // Whereas the spot value fair price is notably different
-        (, balances, ) = vault.getPoolTokens(
-            space.getPoolId()
-        );
+        (, balances, ) = vault.getPoolTokens(space.getPoolId());
         uint256 spotBptValueFairPrice2 = balances[space.pti()]
             .mulDown(fairPTPriceInTarget1)
             .add(balances[1 - space.pti()])
             .divDown(space.totalSupply());
 
-        assertTrue(!isClose(spotBptValueFairPrice1, spotBptValueFairPrice2, 5e15));
+        assertTrue(
+            !isClose(spotBptValueFairPrice1, spotBptValueFairPrice2, 5e15)
+        );
     }
 
     // testPriceNeverAboveOne
