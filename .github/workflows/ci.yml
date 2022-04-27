@@ -5,6 +5,11 @@ jobs:
   analyze:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: recursive
+          token: ${{ secrets.ACCESS_TOKEN }}
+
       - name: Run Slither
         uses: crytic/slither-action@v0.1.1
         id: slither
