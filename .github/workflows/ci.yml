@@ -10,13 +10,8 @@ jobs:
           submodules: recursive
           token: ${{ secrets.ACCESS_TOKEN }}
           
-      - name: Install Foundry
-        uses: onbjerg/foundry-toolchain@v1
-        with:
-          version: nightly
-
       - name: Run Slither
-        uses: crytic/slither-action@v0.1.1
+        uses: crytic/slither-action@dev-install-foundry
         id: slither
         continue-on-error: true
         with:
