@@ -73,7 +73,7 @@ contract SpaceFactory is Trust {
 
     /// @notice Deploys a new `Space` contract
     function create(address adapter, uint256 maturity) external returns (address pool) {
-        _require(pools[adapter][maturity] == address(0), Errors.POOL_ALREADY_DEPLOYED);
+        _require(pools[adapter][maturity] == address(0), Errors.POOL_ALREADY_EXISTS);
 
         pool = address(new Space(
             vault,
@@ -108,4 +108,17 @@ contract SpaceFactory is Trust {
         g2 = _g2;
         oracleEnabled = _oracleEnabled;
     }
+
+    /// @notice Admin action to set a pool address on the "pools" registry
+    /// @dev Adding a pool to the mapping prevents a new pool from being deployed for that Series from this factory
+    function setPool(address adapter, uint256 maturity, address pool) public requiresTrust {
+        _require(pools[adapter][maturity] == address(0), Errors.POOL_ALREADY_EXISTS);
+
+        pools[adapter][maturity] = pool;
+    }
 }
+
+
+    /// @dev Other contracts use this mapping to get the pool address for a specific Series
+    /// @dev This function makes migrations easier b/c the registry can track previously deployed pools
+    /// @dev pools will never be orphanec
