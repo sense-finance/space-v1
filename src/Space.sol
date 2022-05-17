@@ -333,12 +333,14 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         reservesTokenIn = _upscale(reservesTokenIn, scalingFactorTokenIn);
         reservesTokenOut = _upscale(reservesTokenOut, scalingFactorTokenOut);
 
-        // Update oracle with upscaled reserves
-        _updateOracle(
-            request.lastChangeBlock, 
-            pTIn ? reservesTokenIn : reservesTokenOut,
-            pTIn ? reservesTokenOut: reservesTokenIn
-        );
+        if (msg.sender == address(getVault())) {
+            // Update oracle with upscaled reserves
+            _updateOracle(
+                request.lastChangeBlock,
+                pTIn ? reservesTokenIn : reservesTokenOut,
+                pTIn ? reservesTokenOut: reservesTokenIn
+            );
+        }
 
         uint256 scale = AdapterLike(adapter).scale();
 
