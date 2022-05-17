@@ -140,4 +140,15 @@ contract SpaceFactoryTest is DSTest {
             assertEq(error, Errors.POOL_ALREADY_EXISTS);
         }
     }
+
+    function testFuzzSetPool(address lad) public {
+        vm.record();
+        vm.assume(lad != address(this)); // For any address other than the testing contract
+        address NEW_SPACE_POOL = address(0xbabe);
+
+        // 1. Impersonate the fuzzed address and try to add the pool address
+        vm.prank(lad);
+        vm.expectRevert("UNTRUSTED");
+        spaceFactory.setPool(address(adapter), maturity1, NEW_SPACE_POOL);
+    }
 }
