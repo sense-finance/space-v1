@@ -117,8 +117,3 @@ contract SpaceFactory is Trust {
         pools[adapter][maturity] = pool;
     }
 }
-
-
-    /// @dev Other contracts use this mapping to get the pool address for a specific Series
-    /// @dev This function makes migrations easier b/c the registry can track previously deployed pools
-    /// @dev pools will never be orphanec
