@@ -1008,6 +1008,55 @@ contract SpaceTest is DSTest {
         assertGt(targetOut2, targetOut1);
     }
 
+    function testOnSwapStorageUpdates() public {
+        // 1. Initialize resesrves on both sides of the pool
+        jim.join(0, 10e18);
+        sid.swapIn(true, 2e18);
+
+        // 2. Warp forward to a non-zero block num & timestamp
+        uint256 BLOCK = 1;
+        uint256 TS = 111;
+        vm.roll(BLOCK);
+        vm.warp(TS);
+
+        uint256 pti = space.pti();
+        bytes32 poolId = space.getPoolId();
+        (, uint256[] memory balances, ) = vault.getPoolTokens(poolId);
+
+        vm.record();
+        // 3. Try calling onSwap directly
+        space.onSwap(
+            IPoolSwapStructs.SwapRequest({
+                kind: IVault.SwapKind.GIVEN_OUT,
+                tokenIn: IERC20(address(target)),
+                tokenOut: IERC20(address(pt)),
+                amount: 1e18,
+                poolId: poolId,
+                lastChangeBlock: 0,
+                from: address(0),
+                to: address(0),
+                userData: ""
+            }),
+            balances[1 - pti],
+            balances[pti]
+        );
+
+        // Check that no storage slots were updated, and that no sample was stored
+        (, bytes32[] memory writes) = vm.accesses(address(space));
+        assertEq(writes.length, 0);
+        (,,,,,, uint256 sampleTS) = space.getSample(0);
+        assertEq(sampleTS, 0);
+
+        // 4. Try a normal swap through the vault
+        sid.swapIn(true, 1e18);
+
+        // Check that a single storage slot was updated: the oracle 0 index sample
+        (, writes) = vm.accesses(address(space));
+        assertEq(writes.length, 1);
+        (,,,,,, sampleTS) = space.getSample(0);
+        assertEq(sampleTS, TS);
+    }
+
     function testPairOracle() public {
         adapter.setScale(1e18);
         vm.warp(0 hours);
