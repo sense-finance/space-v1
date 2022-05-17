@@ -73,7 +73,7 @@ library Errors {
     uint256 internal constant INVALID_G1 = 101;
     uint256 internal constant INVALID_G2 = 102;
     uint256 internal constant INVALID_POOL_ID = 103;
-    uint256 internal constant POOL_ALREADY_DEPLOYED = 104;
+    uint256 internal constant POOL_ALREADY_EXISTS = 104;
     uint256 internal constant POOL_PAST_MATURITY = 105;
     uint256 internal constant SWAP_TOO_SMALL = 106;
     uint256 internal constant NEGATIVE_RATE = 107;

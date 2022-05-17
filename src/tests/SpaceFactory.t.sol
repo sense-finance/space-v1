@@ -76,7 +76,7 @@ contract SpaceFactoryTest is DSTest {
         try spaceFactory.create(address(adapter), maturity1) {
             fail();
         } catch Error(string memory error) {
-            assertEq(error, Errors.POOL_ALREADY_DEPLOYED);
+            assertEq(error, Errors.POOL_ALREADY_EXISTS);
         }
     }
 
@@ -112,6 +112,32 @@ contract SpaceFactoryTest is DSTest {
             fail();
         } catch Error(string memory error) {
             assertEq(error, Errors.INVALID_G2);
+        }
+    }
+
+    function testSetPool() public {
+        // 1. Set pool address for maturity1
+        spaceFactory.setPool(address(adapter), maturity1, address(0x1337));
+        // Check that the pool was set on the registry
+        assertEq(spaceFactory.pools(address(adapter), maturity1), address(0x1337));
+
+        // Check that a new pool can't be deployed on the same maturity
+        try spaceFactory.create(address(adapter), maturity1) {
+            fail();
+        } catch Error(string memory error) {
+            assertEq(error, Errors.POOL_ALREADY_EXISTS);
+        }
+
+         // 2. Deploy a pool for maturity2
+        address pool = spaceFactory.create(address(adapter), maturity2);
+        // Check that the pool was set on the registry
+        assertEq(spaceFactory.pools(address(adapter), maturity2), pool);
+
+        // Check that another pool can't be deployed on the same maturity
+        try spaceFactory.create(address(adapter), maturity2) {
+            fail();
+        } catch Error(string memory error) {
+            assertEq(error, Errors.POOL_ALREADY_EXISTS);
         }
     }
 }

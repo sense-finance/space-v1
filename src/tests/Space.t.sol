@@ -1363,8 +1363,58 @@ contract SpaceTest is DSTest {
             .add(balances[1 - space.pti()])
             .divDown(space.totalSupply());
 
-        assertTrue(
-            !isClose(spotBptValueFairPrice1, spotBptValueFairPrice2, 5e15)
+        assertTrue(!isClose(spotBptValueFairPrice1, spotBptValueFairPrice2, 5e15));
+    }
+
+    function testFactorySetPoolSwap() public {
+        // 1. Create a valid pool with another Space Factory
+        SpaceFactory spaceFactory2 = new SpaceFactory(
+            vault,
+            address(divider),
+            ts,
+            g1,
+            g2,
+            true
+        );
+        address space2 = spaceFactory2.create(address(adapter), maturity);
+
+        // 2. Set the new pool on the original Space Factory
+        spaceFactory.setPool(address(adapter), maturity + 1, space2);
+
+        // Create a user for the new pool
+        User user1 = new User(vault, Space(space2), ERC20Mintable(pt), ERC20Mintable(target));
+        target.mint(address(user1), 2e18);
+        pt.mint(address(user1), 1e18);
+
+        // 3. Initialize both sides of the manually set pool
+        user1.join(0, 2e18);
+        user1.swapIn(true, 0.5e18);
+
+        // Check that swaps work normally
+        uint256 targetOut = user1.swapIn(true, 0.5e18);
+        assertGt(targetOut, 0);
+    }
+
+    // INTERNAL HELPERS ––––––––––––
+
+    function _initPoolAndUsers(uint8 targetDecimals, uint256 mintAmount)
+        internal returns (
+        ERC20Mintable target,
+        ERC20Mintable pt,
+        Space space,
+        User[] memory users
+    ) {
+        MockDividerSpace divider = new MockDividerSpace(targetDecimals);
+        MockAdapterSpace adapter = new MockAdapterSpace(targetDecimals);
+        adapter.setScale(INIT_SCALE);
+
+        SpaceFactory spaceFactory = new SpaceFactory(
+            vault,
+            address(divider),
+            ts,
+            g1,
+            g2,
+            true
         );
     }
 
