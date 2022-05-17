@@ -1395,28 +1395,5 @@ contract SpaceTest is DSTest {
         assertGt(targetOut, 0);
     }
 
-    // INTERNAL HELPERS ––––––––––––
-
-    function _initPoolAndUsers(uint8 targetDecimals, uint256 mintAmount)
-        internal returns (
-        ERC20Mintable target,
-        ERC20Mintable pt,
-        Space space,
-        User[] memory users
-    ) {
-        MockDividerSpace divider = new MockDividerSpace(targetDecimals);
-        MockAdapterSpace adapter = new MockAdapterSpace(targetDecimals);
-        adapter.setScale(INIT_SCALE);
-
-        SpaceFactory spaceFactory = new SpaceFactory(
-            vault,
-            address(divider),
-            ts,
-            g1,
-            g2,
-            true
-        );
-    }
-
     // testPriceNeverAboveOne
 }
