@@ -69,6 +69,7 @@ contract SpaceTest is DSTest {
 
         maturity = 15811200; // 6 months in seconds
 
+        divider.initSeries(maturity);
         authorizer = new Authorizer(address(this));
         vault = new Vault(authorizer, weth, 0, 0);
         spaceFactory = new SpaceFactory(
@@ -741,6 +742,7 @@ contract SpaceTest is DSTest {
         // Setup ----
         // Set PT/Yield to 8 decimals
         MockDividerSpace divider = new MockDividerSpace(8);
+        divider.initSeries(maturity);
         // Set Target to 9 decimals
         MockAdapterSpace adapter = new MockAdapterSpace(9);
         adapter.setScale(INIT_SCALE);
@@ -799,6 +801,7 @@ contract SpaceTest is DSTest {
     function testDifferentDecimalsMinReserves() public {
         // Set PT/YT to 8 decimals
         MockDividerSpace divider = new MockDividerSpace(8);
+        divider.initSeries(maturity);
         // Set Target to 9 decima;s
         MockAdapterSpace adapter = new MockAdapterSpace(9);
         adapter.setScale(INIT_SCALE);
@@ -811,6 +814,7 @@ contract SpaceTest is DSTest {
             true
         );
         Space space = Space(spaceFactory.create(address(adapter), maturity));
+        
 
         (address _pt, , , , , , , , ) = MockDividerSpace(divider).series(
             address(adapter),
@@ -877,6 +881,7 @@ contract SpaceTest is DSTest {
         vm.assume(swapInAmt2 >= 1e7);
 
         MockDividerSpace divider = new MockDividerSpace(8);
+        divider.initSeries(maturity);
         MockAdapterSpace adapter = new MockAdapterSpace(8);
         SpaceFactory spaceFactory = new SpaceFactory(
             vault,
@@ -933,6 +938,7 @@ contract SpaceTest is DSTest {
         vm.assume(swapInAmt2 >= 1e7);
 
         MockDividerSpace divider = new MockDividerSpace(8);
+        divider.initSeries(maturity);
         MockAdapterSpace adapter = new MockAdapterSpace(8);
         SpaceFactory spaceFactory = new SpaceFactory(
             vault,
@@ -1104,7 +1110,9 @@ contract SpaceTest is DSTest {
 
         // Create a new space pool with no fees
         spaceFactory.setParams(ts, FixedPoint.ONE, FixedPoint.ONE, true);
-        space = Space(spaceFactory.create(address(adapter), maturity / 2));
+        uint256 NEW_MATURITY = maturity / 2;
+        divider.initSeries(NEW_MATURITY);
+        space = Space(spaceFactory.create(address(adapter), NEW_MATURITY));
 
         User tim = new User(vault, space, pt, target);
         pt.mint(address(tim), INTIAL_USER_BALANCE);
@@ -1452,9 +1460,37 @@ contract SpaceTest is DSTest {
             .add(balances[1 - space.pti()])
             .divDown(space.totalSupply());
 
-        assertTrue(
-            !isClose(spotBptValueFairPrice1, spotBptValueFairPrice2, 5e15)
+        assertTrue(!isClose(spotBptValueFairPrice1, spotBptValueFairPrice2, 5e15));
+    }
+
+    function testFactorySetPoolSwap() public {
+        // 1. Create a valid pool with another Space Factory
+        SpaceFactory spaceFactory2 = new SpaceFactory(
+            vault,
+            address(divider),
+            ts,
+            g1,
+            g2,
+            true
         );
+        address space2 = spaceFactory2.create(address(adapter), maturity);
+
+        // 2. Set the new pool on the original Space Factory
+        divider.initSeries(maturity + 1);
+        spaceFactory.setPool(address(adapter), maturity + 1, space2);
+
+        // Create a user for the new pool
+        User user1 = new User(vault, Space(space2), ERC20Mintable(pt), ERC20Mintable(target));
+        target.mint(address(user1), 2e18);
+        pt.mint(address(user1), 1e18);
+
+        // 3. Initialize both sides of the manually set pool
+        user1.join(0, 2e18);
+        user1.swapIn(true, 0.5e18);
+
+        // Check that swaps work normally
+        uint256 targetOut = user1.swapIn(true, 0.5e18);
+        assertGt(targetOut, 0);
     }
 
     // testPriceNeverAboveOne

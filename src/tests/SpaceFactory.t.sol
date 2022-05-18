@@ -65,6 +65,10 @@ contract SpaceFactoryTest is DSTest {
             g2,
             true
         );
+
+        divider.initSeries(maturity1);
+        divider.initSeries(maturity2);
+        divider.initSeries(maturity3);
     }
 
     function testCreatePool() public {
@@ -76,7 +80,7 @@ contract SpaceFactoryTest is DSTest {
         try spaceFactory.create(address(adapter), maturity1) {
             fail();
         } catch Error(string memory error) {
-            assertEq(error, Errors.POOL_ALREADY_DEPLOYED);
+            assertEq(error, Errors.POOL_ALREADY_EXISTS);
         }
     }
 
@@ -113,5 +117,47 @@ contract SpaceFactoryTest is DSTest {
         } catch Error(string memory error) {
             assertEq(error, Errors.INVALID_G2);
         }
+    }
+
+    function testSetPool() public {
+        // 1. Set pool address for maturity1
+        spaceFactory.setPool(address(adapter), maturity1, address(0x1337));
+        // Check that the pool was set on the registry
+        assertEq(spaceFactory.pools(address(adapter), maturity1), address(0x1337));
+
+        // Check that a new pool can't be deployed on the same maturity
+        try spaceFactory.create(address(adapter), maturity1) {
+            fail();
+        } catch Error(string memory error) {
+            assertEq(error, Errors.POOL_ALREADY_EXISTS);
+        }
+
+         // 2. Deploy a pool for maturity2
+        address pool = spaceFactory.create(address(adapter), maturity2);
+        // Check that the pool was set on the registry
+        assertEq(spaceFactory.pools(address(adapter), maturity2), pool);
+
+        // Check that a pool can't be deployed or set for a Series that hasn't bee initialized
+        try spaceFactory.create(address(adapter), maturity3 + 1) {
+            fail();
+        } catch Error(string memory error) {
+            assertEq(error, Errors.INVALID_SERIES);
+        }
+        try spaceFactory.setPool(address(adapter), maturity3 + 1, address(0x1337)) {
+            fail();
+        } catch Error(string memory error) {
+            assertEq(error, Errors.INVALID_SERIES);
+        }
+    }
+
+    function testFuzzSetPool(address lad) public {
+        vm.record();
+        vm.assume(lad != address(this)); // For any address other than the testing contract
+        address NEW_SPACE_POOL = address(0xbabe);
+
+        // 1. Impersonate the fuzzed address and try to add the pool address
+        vm.prank(lad);
+        vm.expectRevert("UNTRUSTED");
+        spaceFactory.setPool(address(adapter), maturity1, NEW_SPACE_POOL);
     }
 }
