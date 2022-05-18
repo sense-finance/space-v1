@@ -335,7 +335,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         reservesTokenOut = _upscale(reservesTokenOut, scalingFactorTokenOut);
 
         if (msg.sender == address(getVault())) {
-            // Update oracle with upscaled reserves
+            // Given this is a real swap and not a preview, update oracle with upscaled reserves
             _updateOracle(
                 request.lastChangeBlock,
                 pTIn ? reservesTokenIn : reservesTokenOut,
