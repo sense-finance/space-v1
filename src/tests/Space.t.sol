@@ -5,7 +5,7 @@ pragma experimental ABIEncoderV2;
 // Testing utils
 import {DSTest} from "@sense-finance/v1-core/src/tests/test-helpers/test.sol";
 import {MockDividerSpace, MockAdapterSpace, ERC20Mintable} from "./utils/Mocks.sol";
-import {VM} from "./utils/VM.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {User} from "./utils/User.sol";
 
 // External references
@@ -25,7 +25,7 @@ import {Errors} from "../Errors.sol";
 contract SpaceTest is DSTest {
     using FixedPoint for uint256;
 
-    VM internal constant vm = VM(HEVM_ADDRESS);
+    Vm internal constant vm = Vm(HEVM_ADDRESS);
     IWETH internal constant weth =
         IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
     uint256 public constant INTIAL_USER_BALANCE = 100e18;
@@ -1007,6 +1007,95 @@ contract SpaceTest is DSTest {
         assertGt(targetOut3, targetOut2);
         assertGt(targetOut2, targetOut1);
     }
+
+    function testOnSwapStorageUpdates() public {
+        // 1. Initialize resesrves on both sides of the pool
+        jim.join(0, 10e18);
+        sid.swapIn(true, 2e18);
+
+        // 2. Warp forward to a non-zero block num & timestamp
+        uint256 BLOCK = 1;
+        uint256 TS = 111;
+        vm.roll(BLOCK);
+        vm.warp(TS);
+
+        uint256 pti = space.pti();
+        bytes32 poolId = space.getPoolId();
+        (, uint256[] memory balances, ) = vault.getPoolTokens(poolId);
+
+        vm.record();
+        // 3. Try calling onSwap directly
+        space.onSwap(
+            IPoolSwapStructs.SwapRequest({
+                kind: IVault.SwapKind.GIVEN_OUT,
+                tokenIn: IERC20(address(target)),
+                tokenOut: IERC20(address(pt)),
+                amount: 1e18,
+                poolId: poolId,
+                lastChangeBlock: 0,
+                from: address(0),
+                to: address(0),
+                userData: ""
+            }),
+            balances[1 - pti],
+            balances[pti]
+        );
+
+        // Check that no storage slots were updated, and that no sample was stored
+        (, bytes32[] memory writes) = vm.accesses(address(space));
+        assertEq(writes.length, 0);
+        (,,,,,, uint256 sampleTS) = space.getSample(0);
+        assertEq(sampleTS, 0);
+
+        // 4. Try a normal swap through the vault
+        sid.swapIn(true, 1e18);
+
+        // Check that a single storage slot was updated: the oracle 0 index sample
+        (, writes) = vm.accesses(address(space));
+        assertEq(writes.length, 1);
+        (,,,,,, sampleTS) = space.getSample(0);
+        assertEq(sampleTS, TS);
+    }
+
+    function testFuzzOnSwapStorageUpdates(uint8[2] calldata envdata, uint64[2] calldata pooldata) public {
+        vm.assume(pooldata[0] / 2 > pooldata[1]);
+        vm.assume(pooldata[1] >= 1e7);
+        
+        // 1. Initialize resesrves on both sides of the pool
+        target.mint(address(jim), pooldata[0]);
+        jim.join(0, pooldata[0]);
+        pt.mint(address(sid), pooldata[1]);
+        sid.swapIn(true, pooldata[1]);
+
+        // 2. Warp forward to a non-zero block num & timestamp
+        vm.roll(envdata[0]);
+        vm.warp(envdata[1]);
+
+        uint256 pti = space.pti();
+        bytes32 poolId = space.getPoolId();
+        (, uint256[] memory balances, ) = vault.getPoolTokens(poolId);
+
+        vm.record();
+        // 3. Try calling onSwap directly
+        space.onSwap(
+            IPoolSwapStructs.SwapRequest({
+                kind: IVault.SwapKind.GIVEN_OUT,
+                tokenIn: IERC20(address(target)),
+                tokenOut: IERC20(address(pt)),
+                amount: 1e6,
+                poolId: poolId,
+                lastChangeBlock: 0,
+                from: address(0),
+                to: address(0),
+                userData: ""
+            }),
+            balances[1 - pti],
+            balances[pti]
+        );
+        (, bytes32[] memory writes) = vm.accesses(address(space));
+        assertEq(writes.length, 0);
+    }
+
 
     function testPairOracle() public {
         adapter.setScale(1e18);
