@@ -58,8 +58,16 @@ contract MockDividerSpace is DividerLike {
     mapping(uint256 => bool) public maturities;
 
     constructor(uint8 principalYieldDecimals) public {
-        ERC20Mintable _pt = new ERC20Mintable("pt", "pt", principalYieldDecimals);
-        ERC20Mintable _yt = new ERC20Mintable("yt", "yt", principalYieldDecimals);
+        ERC20Mintable _pt = new ERC20Mintable(
+            "4th Oct 2021 cDAI Sense Principal Token, A2",
+            "sP-cDAI:04-10-2021:2",
+            principalYieldDecimals
+        );
+        ERC20Mintable _yt = new ERC20Mintable(
+            "4th Oct 2021 cDAI Sense Yield Token, A2",
+            "sY-cDAI:04-10-2021:2",
+            principalYieldDecimals
+        );
 
         ptAddress = address(_pt);
         ytAddress = address(_yt);
