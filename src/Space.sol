@@ -357,7 +357,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             totalSupply(),
             AdapterLike(adapter).scale()
         );
-        
+
         return givenIn ? _downscaleDown(previewedAmount, scalingFactorTokenOut) : _downscaleUp(previewedAmount, scalingFactorTokenIn);
     }
 
@@ -369,7 +369,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         uint256 reservesTokenOut,
         uint256 _totalSupply,
         uint256 scale
-    ) internal view returns (uint256) {
+    ) public view returns (uint256) {
         if (ptIn) {
             // Add LP supply to PT reserves, as suggested by the yieldspace paper
             reservesTokenIn = reservesTokenIn.add(_totalSupply);
