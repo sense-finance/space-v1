@@ -564,7 +564,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         //                ---------------------------
         //                          growth
 
-        uint256 growth = fullInvariant.divDown(timeOnlyInvariant).powDown(FixedPoint.ONE.divDown(a));
+        uint256 growth = fullInvariant.divDown(timeOnlyInvariant).powUp(FixedPoint.ONE.divDown(a));
         uint256 k = protocolSwapFeePercentage.mulDown(growth.sub(FixedPoint.ONE)).divDown(growth);
 
         return totalSupply().mulDown(k).divDown(k.complement());
