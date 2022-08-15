@@ -322,34 +322,57 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         return (amountsOut, new uint256[](2));
     }
 
+// todo empty join
+// eq reserves
+
     function onSwap(
         SwapRequest memory request,
         uint256 reservesTokenIn,
         uint256 reservesTokenOut
-    ) external override returns (uint256) {
-        bool pTIn = request.tokenIn == _token0 ? pti == 0 : pti == 1;
+    ) external override onlyVault(request.poolId) returns (uint256) {
+        bool ptIn = request.tokenIn == _token0 ? pti == 0 : pti == 1;
+        bool givenIn = request.kind == IVault.SwapKind.GIVEN_IN;
 
-        uint256 scalingFactorTokenIn = _scalingFactor(pTIn);
-        uint256 scalingFactorTokenOut = _scalingFactor(!pTIn);
+        uint256 scalingFactorTokenIn = _scalingFactor(ptIn);
+        uint256 scalingFactorTokenOut = _scalingFactor(!ptIn);
 
         // Upscale reserves to 18 decimals
         reservesTokenIn = _upscale(reservesTokenIn, scalingFactorTokenIn);
         reservesTokenOut = _upscale(reservesTokenOut, scalingFactorTokenOut);
 
-        if (msg.sender == address(getVault())) {
-            // Given this is a real swap and not a preview, update oracle with upscaled reserves
-            _updateOracle(
-                request.lastChangeBlock,
-                pTIn ? reservesTokenIn : reservesTokenOut,
-                pTIn ? reservesTokenOut: reservesTokenIn
-            );
-        }
+        _updateOracle(
+            request.lastChangeBlock,
+            ptIn ? reservesTokenIn : reservesTokenOut,
+            ptIn ? reservesTokenOut : reservesTokenIn
+        );
 
-        uint256 scale = AdapterLike(adapter).scale();
+        uint256 amountDelta = _upscale(request.amount, givenIn ? scalingFactorTokenIn : scalingFactorTokenOut);
+        
+        uint256 previewedAmount = onSwapPreview(
+            ptIn,
+            givenIn,
+            amountDelta,
+            reservesTokenIn,
+            reservesTokenOut,
+            totalSupply(),
+            AdapterLike(adapter).scale()
+        );
+        
+        return givenIn ? _downscaleDown(previewedAmount, scalingFactorTokenOut) : _downscaleUp(previewedAmount, scalingFactorTokenIn);
+    }
 
-        if (pTIn) {
+    function onSwapPreview(
+        bool ptIn,
+        bool givenIn,
+        uint256 amountDelta,
+        uint256 reservesTokenIn,
+        uint256 reservesTokenOut,
+        uint256 _totalSupply,
+        uint256 scale
+    ) internal view returns (uint256) {
+        if (ptIn) {
             // Add LP supply to PT reserves, as suggested by the yieldspace paper
-            reservesTokenIn = reservesTokenIn.add(totalSupply());
+            reservesTokenIn = reservesTokenIn.add(_totalSupply);
 
             // Backdate the Target reserves and convert to Underlying, as if it were still t0 (initialization)
             reservesTokenOut = reservesTokenOut.mulDown(_initScale);
@@ -358,43 +381,39 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             reservesTokenIn = reservesTokenIn.mulDown(_initScale);
 
             // Add LP supply to PT reserves, as suggested by the yieldspace paper
-            reservesTokenOut = reservesTokenOut.add(totalSupply());
+            reservesTokenOut = reservesTokenOut.add(_totalSupply);
         }
 
-        if (request.kind == IVault.SwapKind.GIVEN_IN) {
-            request.amount = _upscale(request.amount, scalingFactorTokenIn);
+        if (givenIn) {
             // If Target is being swapped in, convert the amountIn to Underlying using present day Scale
-            if (!pTIn) {
-                request.amount = request.amount.mulDown(scale);
+            if (!ptIn) {
+                amountDelta = amountDelta.mulDown(scale);
             }
 
             // Determine the amountOut
-            uint256 amountOut = _onSwap(pTIn, true, request.amount, reservesTokenIn, reservesTokenOut);
+            uint256 amountOut = _onSwap(ptIn, true, amountDelta, reservesTokenIn, reservesTokenOut);
 
             // If PTs are being swapped in, convert the Underlying out back to Target using present day Scale
-            if (pTIn) {
+            if (ptIn) {
                 amountOut = amountOut.divDown(scale);
             }
 
-            // AmountOut, so we round down
-            return _downscaleDown(amountOut, scalingFactorTokenOut);
+            return amountOut;
         } else {
-            request.amount = _upscale(request.amount, scalingFactorTokenOut);
             // If PTs are being swapped in, convert the amountOut from Target to Underlying using present day Scale
-            if (pTIn) {
-                request.amount = request.amount.mulDown(scale);
+            if (ptIn) {
+                amountDelta = amountDelta.mulDown(scale);
             }
 
             // Determine the amountIn
-            uint256 amountIn = _onSwap(pTIn, false, request.amount, reservesTokenIn, reservesTokenOut);
+            uint256 amountIn = _onSwap(ptIn, false, amountDelta, reservesTokenIn, reservesTokenOut);
 
             // If Target is being swapped in, convert the amountIn back to Target using present day Scale
-            if (!pTIn) {
+            if (!ptIn) {
                 amountIn = amountIn.divDown(scale);
             }
 
-            // amountIn, so we round up
-            return _downscaleUp(amountIn, scalingFactorTokenIn);
+            return amountIn;
         }
     }
 
