@@ -323,7 +323,6 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     }
 
 // todo empty join
-// eq reserves
 
     function onSwap(
         SwapRequest memory request,
@@ -718,6 +717,26 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             .divDown(AdapterLike(adapter).scaleStored());
     }
 
+    function getEqReserves(
+        uint256 stretchedRate,
+        uint256 _maturity,
+        uint256 ptReserves,
+        uint256 targetReserves,
+        uint256 _totalSupply
+    ) public view returns (
+        uint256 eqPTReserves,
+        uint256 eqTargetReserves
+    ) {
+        uint256 a = ts.mulDown(_maturity > block.timestamp ? uint256(_maturity - block.timestamp) * FixedPoint.ONE : 0).complement();
+        uint256 k = ptReserves.add(_totalSupply).powDown(a).add(
+           targetReserves.mulDown(_initScale).powDown(a)
+        );
+        uint256 i = FixedPoint.ONE.divDown(FixedPoint.ONE.add(stretchedRate).powDown(a)).add(FixedPoint.ONE);
+        uint256 eqPTReservesPartial = k.divDown(i).powDown(FixedPoint.ONE.divDown(a));
+
+        return (eqPTReservesPartial.sub(_totalSupply), eqPTReservesPartial.divDown(_initScale.mulDown(FixedPoint.ONE.add(stretchedRate))));
+    }
+
     /// @notice Get the "fair" price for the BPT tokens given a correct price for PTs
     /// in terms of Target. i.e. the price of one BPT in terms of Target using reserves
     /// as they would be if they accurately reflected the true PT price
@@ -739,30 +758,20 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         uint256[] memory results = this.getTimeWeightedAverage(queries);
         uint256 pTPriceInTarget = pti == 1 ? results[0] : FixedPoint.ONE.divDown(results[0]);
 
-        uint256 impliedRate = getImpliedRateFromPrice(pTPriceInTarget);
         (, uint256[] memory balances, ) = _vault.getPoolTokens(_poolId);
+        uint256 _totalSupply = totalSupply();
 
-        uint256 ttm = maturity > block.timestamp
-            ? uint256(maturity - block.timestamp) * FixedPoint.ONE
-            : 0;
-        uint256 a = ts.mulDown(ttm).complement();
-
-        uint256 k = balances[pti].add(totalSupply()).powDown(a).add(
-            balances[1 - pti].mulDown(_initScale).powDown(a)
+        // Calculate equilibrium reserves given the current reserve balances, and the rate suggested by the TWAR
+        (uint256 eqPTReserves, uint256 eqTargetReserves) = getEqReserves(
+            getImpliedRateFromPrice(pTPriceInTarget),
+            maturity,
+            balances[pti],
+            balances[1 - pti],
+            _totalSupply
+            // FixedPoint.ONE
         );
 
-        // Equilibrium reserves for the PT side, w/o the final `- totalSupply` at the end
-        uint256 equilibriumPTReservesPartial = k.divDown(
-            FixedPoint.ONE.divDown(FixedPoint.ONE.add(impliedRate).powDown(a)).add(FixedPoint.ONE)
-        ).powDown(FixedPoint.ONE.divDown(a));
-
-        uint256 equilibriumTargetReserves = equilibriumPTReservesPartial
-            .divDown(_initScale.mulDown(FixedPoint.ONE.add(impliedRate)));
-
-        fairBptPriceInTarget = equilibriumTargetReserves
-            // Complete the equilibrium PT reserve calc
-            .add(equilibriumPTReservesPartial.sub(totalSupply())
-            .mulDown(pTPriceInTarget)).divDown(totalSupply());
+        fairBptPriceInTarget = eqTargetReserves.add(eqPTReserves.mulDown(pTPriceInTarget)).divDown(_totalSupply);
     }
 
     /// @notice Get token indices for PT and Target
