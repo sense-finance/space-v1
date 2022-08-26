@@ -322,13 +322,11 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         return (amountsOut, new uint256[](2));
     }
 
-// todo empty join
-
     function onSwap(
         SwapRequest memory request,
         uint256 reservesTokenIn,
         uint256 reservesTokenOut
-    ) external override onlyVault(request.poolId) returns (uint256) {
+    ) external override returns (uint256) {
         bool ptIn = request.tokenIn == _token0 ? pti == 0 : pti == 1;
         bool givenIn = request.kind == IVault.SwapKind.GIVEN_IN;
 
@@ -339,11 +337,14 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         reservesTokenIn = _upscale(reservesTokenIn, scalingFactorTokenIn);
         reservesTokenOut = _upscale(reservesTokenOut, scalingFactorTokenOut);
 
-        _updateOracle(
-            request.lastChangeBlock,
-            ptIn ? reservesTokenIn : reservesTokenOut,
-            ptIn ? reservesTokenOut : reservesTokenIn
-        );
+        if (msg.sender == address(getVault())) {
+            // Given this is a real swap and not a preview, update oracle with upscaled reserves
+            _updateOracle(
+                request.lastChangeBlock,
+                ptIn ? reservesTokenIn : reservesTokenOut,
+                ptIn ? reservesTokenOut: reservesTokenIn
+            );
+        }
 
         uint256 amountDelta = _upscale(request.amount, givenIn ? scalingFactorTokenIn : scalingFactorTokenOut);
         
@@ -717,24 +718,32 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             .divDown(AdapterLike(adapter).scaleStored());
     }
 
-    function getEqReserves(
+    function getEQReserves(
         uint256 stretchedRate,
         uint256 _maturity,
         uint256 ptReserves,
         uint256 targetReserves,
-        uint256 _totalSupply
+        uint256 _totalSupply,
+        uint256 fee
     ) public view returns (
         uint256 eqPTReserves,
         uint256 eqTargetReserves
     ) {
-        uint256 a = ts.mulDown(_maturity > block.timestamp ? uint256(_maturity - block.timestamp) * FixedPoint.ONE : 0).complement();
-        uint256 k = ptReserves.add(_totalSupply).powDown(a).add(
-           targetReserves.mulDown(_initScale).powDown(a)
-        );
-        uint256 i = FixedPoint.ONE.divDown(FixedPoint.ONE.add(stretchedRate).powDown(a)).add(FixedPoint.ONE);
-        uint256 eqPTReservesPartial = k.divDown(i).powDown(FixedPoint.ONE.divDown(a));
+        uint256 a = fee.mulDown(ts.mulDown(_maturity > block.timestamp ? uint256(_maturity - block.timestamp) * FixedPoint.ONE : 0)).complement();
 
-        return (eqPTReservesPartial.sub(_totalSupply), eqPTReservesPartial.divDown(_initScale.mulDown(FixedPoint.ONE.add(stretchedRate))));
+        uint256 initScale = _initScale;
+        uint256 eqPTReservesPartial;
+        {
+            if (initScale == 0) initScale = AdapterLike(adapter).scaleStored();
+            uint256 k = ptReserves.add(_totalSupply).powDown(a).add(
+                targetReserves.mulDown(initScale).powDown(a)
+            );
+            uint256 i = FixedPoint.ONE.add(stretchedRate).powDown(a);
+            i = FixedPoint.ONE.divDown(i).add(FixedPoint.ONE);
+            eqPTReservesPartial = k.divDown(i).powDown(FixedPoint.ONE.divDown(a));
+        }
+
+        return (eqPTReservesPartial.sub(_totalSupply), eqPTReservesPartial.divDown(initScale.mulDown(FixedPoint.ONE.add(stretchedRate))));
     }
 
     /// @notice Get the "fair" price for the BPT tokens given a correct price for PTs
@@ -762,16 +771,22 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         uint256 _totalSupply = totalSupply();
 
         // Calculate equilibrium reserves given the current reserve balances, and the rate suggested by the TWAR
-        (uint256 eqPTReserves, uint256 eqTargetReserves) = getEqReserves(
+        (uint256 eqPTReserves, uint256 eqTargetReserves) = getEQReserves(
             getImpliedRateFromPrice(pTPriceInTarget),
             maturity,
             balances[pti],
             balances[1 - pti],
-            _totalSupply
-            // FixedPoint.ONE
+            _totalSupply,
+            FixedPoint.ONE
         );
 
         fairBptPriceInTarget = eqTargetReserves.add(eqPTReserves.mulDown(pTPriceInTarget)).divDown(_totalSupply);
+    }
+
+    function adjustedTotalSupply() external returns (uint256) {
+        uint256 protocolSwapFeePercentage = _vault.getProtocolFeesCollector().getSwapFeePercentage();
+        (, uint256[] memory balances, ) = _vault.getPoolTokens(_poolId);
+        return totalSupply() + _bptFeeDue(balances, protocolSwapFeePercentage);
     }
 
     /// @notice Get token indices for PT and Target
