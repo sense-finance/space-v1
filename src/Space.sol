@@ -212,9 +212,6 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
 
             _require(bptToMint >= minBptOut, Errors.BPT_OUT_MIN_AMOUNT);
 
-            // Amounts entering the Pool, so we round up
-            _downscaleUpArray(reqAmountsIn);
-
             // Set the scale value all future deposits will be backdated to
             _initScale = initScale;
 
@@ -227,6 +224,9 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         
             // Cache new reserves, post join
             _cacheReserves(reserves);
+
+            // Amounts entering the Pool, so we round up
+            _downscaleUpArray(reqAmountsIn);
 
             return (reqAmountsIn, new uint256[](2));
         } else {
