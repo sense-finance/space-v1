@@ -327,10 +327,11 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         uint256 reservesTokenIn,
         uint256 reservesTokenOut
     ) external override returns (uint256) {
-        bool pTIn = request.tokenIn == _token0 ? pti == 0 : pti == 1;
+        bool ptIn = request.tokenIn == _token0 ? pti == 0 : pti == 1;
+        bool givenIn = request.kind == IVault.SwapKind.GIVEN_IN;
 
-        uint256 scalingFactorTokenIn = _scalingFactor(pTIn);
-        uint256 scalingFactorTokenOut = _scalingFactor(!pTIn);
+        uint256 scalingFactorTokenIn = _scalingFactor(ptIn);
+        uint256 scalingFactorTokenOut = _scalingFactor(!ptIn);
 
         // Upscale reserves to 18 decimals
         reservesTokenIn = _upscale(reservesTokenIn, scalingFactorTokenIn);
@@ -340,16 +341,38 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             // Given this is a real swap and not a preview, update oracle with upscaled reserves
             _updateOracle(
                 request.lastChangeBlock,
-                pTIn ? reservesTokenIn : reservesTokenOut,
-                pTIn ? reservesTokenOut: reservesTokenIn
+                ptIn ? reservesTokenIn : reservesTokenOut,
+                ptIn ? reservesTokenOut: reservesTokenIn
             );
         }
 
-        uint256 scale = AdapterLike(adapter).scale();
+        uint256 amountDelta = _upscale(request.amount, givenIn ? scalingFactorTokenIn : scalingFactorTokenOut);
+        
+        uint256 previewedAmount = onSwapPreview(
+            ptIn,
+            givenIn,
+            amountDelta,
+            reservesTokenIn,
+            reservesTokenOut,
+            totalSupply(),
+            AdapterLike(adapter).scale()
+        );
 
-        if (pTIn) {
+        return givenIn ? _downscaleDown(previewedAmount, scalingFactorTokenOut) : _downscaleUp(previewedAmount, scalingFactorTokenIn);
+    }
+
+    function onSwapPreview(
+        bool ptIn,
+        bool givenIn,
+        uint256 amountDelta,
+        uint256 reservesTokenIn,
+        uint256 reservesTokenOut,
+        uint256 _totalSupply,
+        uint256 scale
+    ) public view returns (uint256) {
+        if (ptIn) {
             // Add LP supply to PT reserves, as suggested by the yieldspace paper
-            reservesTokenIn = reservesTokenIn.add(totalSupply());
+            reservesTokenIn = reservesTokenIn.add(_totalSupply);
 
             // Backdate the Target reserves and convert to Underlying, as if it were still t0 (initialization)
             reservesTokenOut = reservesTokenOut.mulDown(_initScale);
@@ -358,43 +381,39 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             reservesTokenIn = reservesTokenIn.mulDown(_initScale);
 
             // Add LP supply to PT reserves, as suggested by the yieldspace paper
-            reservesTokenOut = reservesTokenOut.add(totalSupply());
+            reservesTokenOut = reservesTokenOut.add(_totalSupply);
         }
 
-        if (request.kind == IVault.SwapKind.GIVEN_IN) {
-            request.amount = _upscale(request.amount, scalingFactorTokenIn);
+        if (givenIn) {
             // If Target is being swapped in, convert the amountIn to Underlying using present day Scale
-            if (!pTIn) {
-                request.amount = request.amount.mulDown(scale);
+            if (!ptIn) {
+                amountDelta = amountDelta.mulDown(scale);
             }
 
             // Determine the amountOut
-            uint256 amountOut = _onSwap(pTIn, true, request.amount, reservesTokenIn, reservesTokenOut);
+            uint256 amountOut = _onSwap(ptIn, true, amountDelta, reservesTokenIn, reservesTokenOut);
 
             // If PTs are being swapped in, convert the Underlying out back to Target using present day Scale
-            if (pTIn) {
+            if (ptIn) {
                 amountOut = amountOut.divDown(scale);
             }
 
-            // AmountOut, so we round down
-            return _downscaleDown(amountOut, scalingFactorTokenOut);
+            return amountOut;
         } else {
-            request.amount = _upscale(request.amount, scalingFactorTokenOut);
             // If PTs are being swapped in, convert the amountOut from Target to Underlying using present day Scale
-            if (pTIn) {
-                request.amount = request.amount.mulDown(scale);
+            if (ptIn) {
+                amountDelta = amountDelta.mulDown(scale);
             }
 
             // Determine the amountIn
-            uint256 amountIn = _onSwap(pTIn, false, request.amount, reservesTokenIn, reservesTokenOut);
+            uint256 amountIn = _onSwap(ptIn, false, amountDelta, reservesTokenIn, reservesTokenOut);
 
             // If Target is being swapped in, convert the amountIn back to Target using present day Scale
-            if (!pTIn) {
+            if (!ptIn) {
                 amountIn = amountIn.divDown(scale);
             }
 
-            // amountIn, so we round up
-            return _downscaleUp(amountIn, scalingFactorTokenIn);
+            return amountIn;
         }
     }
 
@@ -564,7 +583,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         //                ---------------------------
         //                          growth
 
-        uint256 growth = fullInvariant.divDown(timeOnlyInvariant).powDown(FixedPoint.ONE.divDown(a));
+        uint256 growth = fullInvariant.divDown(timeOnlyInvariant).powUp(FixedPoint.ONE.divDown(a));
         uint256 k = protocolSwapFeePercentage.mulDown(growth.sub(FixedPoint.ONE)).divDown(growth);
 
         return totalSupply().mulDown(k).divDown(k.complement());
@@ -699,6 +718,34 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             .divDown(AdapterLike(adapter).scaleStored());
     }
 
+    function getEQReserves(
+        uint256 stretchedRate,
+        uint256 _maturity,
+        uint256 ptReserves,
+        uint256 targetReserves,
+        uint256 _totalSupply,
+        uint256 fee
+    ) public view returns (
+        uint256 eqPTReserves,
+        uint256 eqTargetReserves
+    ) {
+        uint256 a = fee.mulDown(ts.mulDown(_maturity > block.timestamp ? uint256(_maturity - block.timestamp) * FixedPoint.ONE : 0)).complement();
+
+        uint256 initScale = _initScale;
+        uint256 eqPTReservesPartial;
+        {
+            if (initScale == 0) initScale = AdapterLike(adapter).scaleStored();
+            uint256 k = ptReserves.add(_totalSupply).powDown(a).add(
+                targetReserves.mulDown(initScale).powDown(a)
+            );
+            uint256 i = FixedPoint.ONE.add(stretchedRate).powDown(a);
+            i = FixedPoint.ONE.divDown(i).add(FixedPoint.ONE);
+            eqPTReservesPartial = k.divDown(i).powDown(FixedPoint.ONE.divDown(a));
+        }
+
+        return (eqPTReservesPartial.sub(_totalSupply), eqPTReservesPartial.divDown(initScale.mulDown(FixedPoint.ONE.add(stretchedRate))));
+    }
+
     /// @notice Get the "fair" price for the BPT tokens given a correct price for PTs
     /// in terms of Target. i.e. the price of one BPT in terms of Target using reserves
     /// as they would be if they accurately reflected the true PT price
@@ -720,30 +767,26 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         uint256[] memory results = this.getTimeWeightedAverage(queries);
         uint256 pTPriceInTarget = pti == 1 ? results[0] : FixedPoint.ONE.divDown(results[0]);
 
-        uint256 impliedRate = getImpliedRateFromPrice(pTPriceInTarget);
         (, uint256[] memory balances, ) = _vault.getPoolTokens(_poolId);
+        uint256 _totalSupply = totalSupply();
 
-        uint256 ttm = maturity > block.timestamp
-            ? uint256(maturity - block.timestamp) * FixedPoint.ONE
-            : 0;
-        uint256 a = ts.mulDown(ttm).complement();
-
-        uint256 k = balances[pti].add(totalSupply()).powDown(a).add(
-            balances[1 - pti].mulDown(_initScale).powDown(a)
+        // Calculate equilibrium reserves given the current reserve balances, and the rate suggested by the TWAR
+        (uint256 eqPTReserves, uint256 eqTargetReserves) = getEQReserves(
+            getImpliedRateFromPrice(pTPriceInTarget),
+            maturity,
+            balances[pti],
+            balances[1 - pti],
+            _totalSupply,
+            FixedPoint.ONE
         );
 
-        // Equilibrium reserves for the PT side, w/o the final `- totalSupply` at the end
-        uint256 equilibriumPTReservesPartial = k.divDown(
-            FixedPoint.ONE.divDown(FixedPoint.ONE.add(impliedRate).powDown(a)).add(FixedPoint.ONE)
-        ).powDown(FixedPoint.ONE.divDown(a));
+        fairBptPriceInTarget = eqTargetReserves.add(eqPTReserves.mulDown(pTPriceInTarget)).divDown(_totalSupply);
+    }
 
-        uint256 equilibriumTargetReserves = equilibriumPTReservesPartial
-            .divDown(_initScale.mulDown(FixedPoint.ONE.add(impliedRate)));
-
-        fairBptPriceInTarget = equilibriumTargetReserves
-            // Complete the equilibrium PT reserve calc
-            .add(equilibriumPTReservesPartial.sub(totalSupply())
-            .mulDown(pTPriceInTarget)).divDown(totalSupply());
+    function adjustedTotalSupply() external returns (uint256) {
+        uint256 protocolSwapFeePercentage = _vault.getProtocolFeesCollector().getSwapFeePercentage();
+        (, uint256[] memory balances, ) = _vault.getPoolTokens(_poolId);
+        return totalSupply() + _bptFeeDue(balances, protocolSwapFeePercentage);
     }
 
     /// @notice Get token indices for PT and Target
