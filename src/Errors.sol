@@ -78,4 +78,5 @@ library Errors {
     uint256 internal constant SWAP_TOO_SMALL = 106;
     uint256 internal constant NEGATIVE_RATE = 107;
     uint256 internal constant BPT_OUT_MIN_AMOUNT = 108;
+    uint256 internal constant INVALID_SERIES = 109;
 }

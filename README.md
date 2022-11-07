@@ -59,3 +59,7 @@ forge create SpaceFactory --constructor-args \
 ## Security
 
 Sense Space contracts have gone through different independent security audits performed by [Fixed Point Solutions (Kurt Barry)](https://github.com/fixed-point-solutions) and [Spearbit](https://spearbit.com). Reports are located in the [`audits`](./audits) directory.
+
+### Bug Bounties
+
+Sense has an [active bug bounty on ImmuneFi](https://immunefi.com/bounty/sense/), with up to $50,000 for reporting a bug in deployed contracts & the Sense Portal.

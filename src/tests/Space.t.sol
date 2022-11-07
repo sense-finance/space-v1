@@ -22,42 +22,7 @@ import { SpaceFactory } from "../SpaceFactory.sol";
 import { Space } from "../Space.sol";
 import { Errors } from "../Errors.sol";
 
-// Base DSTest plus a few extra features
-contract Test is DSTest {
-    function assertClose(
-        uint256 a,
-        uint256 b,
-        uint256 _tolerance
-    ) public {
-        bool _isClose = isClose(a, b, _tolerance);
-        if (!_isClose) {
-            emit log("Error: abs(a, b) < tolerance not satisfied [uint]");
-            emit log_named_uint("  Expected", b);
-            emit log_named_uint("  Tolerance", _tolerance);
-            emit log_named_uint("    Actual", a);
-            fail();
-        }
-    }
-
-    function isClose(
-        uint256 a,
-        uint256 b,
-        uint256 _tolerance
-    ) public view returns (bool) {
-        uint256 diff = a < b ? b - a : a - b;
-        return diff <= _tolerance;
-    }
-
-    function fuzzWithBounds(
-        uint256 amount,
-        uint256 lBound,
-        uint256 uBound
-    ) internal returns (uint256) {
-        return lBound + (amount % (uBound - lBound));
-    }
-}
-
-contract SpaceTest is Test {
+contract SpaceTest is DSTest {
     using FixedPoint for uint256;
 
     Vm internal constant vm = Vm(HEVM_ADDRESS);
@@ -104,6 +69,7 @@ contract SpaceTest is Test {
 
         maturity = 15811200; // 6 months in seconds
 
+        divider.initSeries(maturity);
         authorizer = new Authorizer(address(this));
         vault = new Vault(authorizer, weth, 0, 0);
         spaceFactory = new SpaceFactory(
@@ -146,6 +112,29 @@ contract SpaceTest is Test {
         sam = new User(vault, space, pt, target);
     }
 
+    function testDeployPoolHasParams() public {
+        address pt = MockDividerSpace(divider).pt(address(adapter), maturity);
+        Space pool = new Space(
+            vault,
+            address(adapter),
+            maturity,
+            pt,
+            ts,
+            g1,
+            g2,
+            true
+        );
+        uint256 pti = pt < address(target) ? 0 : 1;
+        assertEq(pool.adapter(), address(adapter));
+        assertEq(pool.maturity(), maturity);
+        assertEq(pool.pti(), pti);
+        assertEq(pool.ts(), ts);
+        assertEq(pool.g1(), g1);
+        assertEq(pool.g2(), g2);
+        assertEq(pool.name(), "Sense Space 4th Oct 2021 cDAI Sense Principal Token, A2");
+        assertEq(pool.symbol(), "SPACE-sP-cDAI:04-10-2021:2");
+    }
+
     function testJoinOnce() public {
         jim.join();
 
@@ -155,7 +144,11 @@ contract SpaceTest is Test {
 
         // and it minted jim's account BPT tokens equal to the value of underlying
         // deposited (inital scale is 1e18, so it's one-to-one)
-        assertClose(space.balanceOf(address(jim)), uint256(1e18).mulDown(INIT_SCALE), 1e6);
+        assertClose(
+            space.balanceOf(address(jim)),
+            uint256(1e18).mulDown(INIT_SCALE),
+            1e6
+        );
 
         // but it did not move any PT
         assertEq(pt.balanceOf(address(jim)), 100e18);
@@ -172,7 +165,11 @@ contract SpaceTest is Test {
         assertEq(target.balanceOf(address(jim)), 98e18);
 
         // and it minted jim's account more BPT tokens
-        assertClose(space.balanceOf(address(jim)), uint256(2e18).mulDown(INIT_SCALE), 1e6);
+        assertClose(
+            space.balanceOf(address(jim)),
+            uint256(2e18).mulDown(INIT_SCALE),
+            1e6
+        );
 
         // but it still did not move any PT
         assertEq(pt.balanceOf(address(jim)), 100e18);
@@ -276,7 +273,10 @@ contract SpaceTest is Test {
         (, uint256[] memory balances, ) = vault.getPoolTokens(
             space.getPoolId()
         );
-        assertEq(balances[1 - space.pti()], space.MINIMUM_BPT().divDown(INIT_SCALE));
+        assertEq(
+            balances[1 - space.pti()],
+            space.MINIMUM_BPT().divDown(INIT_SCALE)
+        );
         vm.roll(2);
 
         // Pre-swap join uses target in times init_scale to determine the bpt given out
@@ -760,6 +760,22 @@ contract SpaceTest is Test {
     }
 
     function testDifferentDecimalsMinReserves() public {
+        // Set PT/YT to 8 decimals
+        MockDividerSpace divider = new MockDividerSpace(8);
+        divider.initSeries(maturity);
+        // Set Target to 9 decima;s
+        MockAdapterSpace adapter = new MockAdapterSpace(9);
+        adapter.setScale(INIT_SCALE);
+        SpaceFactory spaceFactory = new SpaceFactory(
+            vault,
+            address(divider),
+            ts,
+            g1,
+            g2,
+            true
+        );
+        Space space = Space(spaceFactory.create(address(adapter), maturity));
+        
 
         uint8 DECIMALS = 8;
         uint256 BASE_UNIT = 10 ** DECIMALS;
@@ -801,9 +817,12 @@ contract SpaceTest is Test {
         assertEq(_space.totalSupply(), (BASE_UNIT * 5 + 1) * lpSupplyPreJoin);
     }
 
-    // Companion test to testSmallDecimalsGuardInvalidState, the primary difference is that Sia does not join any liquidity
-    // Testing that, without a small amount of liquidity kept in the Pool, the Pool can enter an invalid state with low decimal tokens
-    function testFailSmallDecimalsGuardInvalidState(uint64 joinAmt, uint64 swapInAmt1, uint64 swapInAmt2) public {
+    // companion test to testSmallDecimalsGuardInvalidState, the primary difference is that Sia does not join any liquidity
+    function testFailSmallDecimalsGuardInvalidState(
+        uint64 joinAmt,
+        uint64 swapInAmt1,
+        uint64 swapInAmt2
+    ) public {
         vm.assume(joinAmt / 2 > swapInAmt1);
         vm.assume(swapInAmt1 / 2 > swapInAmt2);
         // No tiny swaps
@@ -823,7 +842,10 @@ contract SpaceTest is Test {
             _space.getPoolId()
         );
 
-        assertTrue(!((balances[0] == 0 || balances[0] == 1) && (balances[1] == 0 || balances[1] == 1)));
+        assertTrue(
+            !((balances[0] == 0 || balances[0] == 1) &&
+                (balances[1] == 0 || balances[1] == 1))
+        );
 
         // Even though max re-joins all of his liquidity...
         max.join(joinAmt, joinAmt);
@@ -831,22 +853,45 @@ contract SpaceTest is Test {
         eve.swapIn(true, swapInAmt2);
     }
 
-    // Companion test to testFailSmallDecimalNoLockedLiquidity, the primary difference is that Sia keeps a tiny amount of liquidity locked
-    // Testing that a small amount of liquidity kept in the Pool prevents the Pool from ever entering an invalid state
-    function testSmallDecimalsGuardInvalidState(uint64 joinAmt, uint64 swapInAmt1, uint64 swapInAmt2) public {
+    // companion test to testFailSmallDecimalNoLockedLiquidity, the primary difference is that Sia keeps a tiny amount of liquidity locked
+    function testSmallDecimalsGuardInvalidState(
+        uint64 joinAmt,
+        uint64 swapInAmt1,
+        uint64 swapInAmt2
+    ) public {
         vm.assume(joinAmt / 2 > swapInAmt1);
         vm.assume(swapInAmt1 / 2 > swapInAmt2);
         // No tiny swaps
         vm.assume(swapInAmt2 >= 1e7);
 
-        uint8 DECIMALS = 8;
-        emit log_uint(joinAmt);
-        emit log_uint(joinAmt + swapInAmt1 + swapInAmt2);
-        (, , Space _space, User[] memory users) = _initPoolAndUsers(DECIMALS, uint256(joinAmt) + uint256(swapInAmt1) + uint256(swapInAmt2));
+        MockDividerSpace divider = new MockDividerSpace(8);
+        divider.initSeries(maturity);
+        MockAdapterSpace adapter = new MockAdapterSpace(8);
+        SpaceFactory spaceFactory = new SpaceFactory(
+            vault,
+            address(divider),
+            ts,
+            g1,
+            g2,
+            true
+        );
+        Space space = Space(spaceFactory.create(address(adapter), maturity));
 
-        User max = users[0];
-        User eve = users[1];
-        User sia = users[2];
+        (address _pt, , , , , , , , ) = MockDividerSpace(divider).series(
+            address(adapter),
+            maturity
+        );
+        ERC20Mintable _target = ERC20Mintable(adapter.target());
+
+        User max = new User(vault, space, ERC20Mintable(_pt), _target);
+        _target.mint(address(max), uint256(joinAmt) * 2);
+        ERC20Mintable(_pt).mint(address(max), uint256(joinAmt) * 2);
+
+        User eve = new User(vault, space, ERC20Mintable(_pt), _target);
+        ERC20Mintable(_pt).mint(address(eve), swapInAmt1 + swapInAmt2);
+
+        User sia = new User(vault, space, ERC20Mintable(_pt), _target);
+        _target.mint(address(sia), 1e8);
 
         // Sia keeps a little seed liquidity locked in the pool
         sia.join(0, 1e8);
@@ -855,13 +900,16 @@ contract SpaceTest is Test {
         // Init PTs
         eve.swapIn(true, swapInAmt1);
         // Exit everything besides Sia's seed liquidity
-        max.exit(_space.balanceOf(address(max)));
+        max.exit(space.balanceOf(address(max)));
 
         (, uint256[] memory balances, ) = vault.getPoolTokens(
-            _space.getPoolId()
+            space.getPoolId()
         );
 
-        assertTrue(!((balances[0] == 0 || balances[0] == 1) && (balances[1] == 0 || balances[1] == 1)));
+        assertTrue(
+            !((balances[0] == 0 || balances[0] == 1) &&
+                (balances[1] == 0 || balances[1] == 1))
+        );
 
         // Re-join all of Max's liquidity
         max.join(joinAmt, joinAmt);
@@ -893,54 +941,7 @@ contract SpaceTest is Test {
         assertGt(targetOut2, targetOut1);
     }
 
-    function testOnSwapStorageUpdates() public {
-        // 1. Initialize resesrves on both sides of the pool
-        jim.join(0, 10e18);
-        sid.swapIn(true, 2e18);
-
-        // 2. Warp forward to a non-zero block num & timestamp
-        uint256 BLOCK = 1;
-        uint256 TS = 111;
-        vm.roll(BLOCK);
-        vm.warp(TS);
-
-        uint256 pti = space.pti();
-        bytes32 poolId = space.getPoolId();
-        (, uint256[] memory balances, ) = vault.getPoolTokens(poolId);
-
-        vm.record();
-        // 3. Try calling onSwap directly
-        space.onSwap(
-            IPoolSwapStructs.SwapRequest({
-                kind: IVault.SwapKind.GIVEN_OUT,
-                tokenIn: IERC20(address(target)),
-                tokenOut: IERC20(address(pt)),
-                amount: 1e18,
-                poolId: poolId,
-                lastChangeBlock: 0,
-                from: address(0),
-                to: address(0),
-                userData: ""
-            }),
-            balances[1 - pti],
-            balances[pti]
-        );
-
-        // Check that no storage slots were updated, and that no sample was stored
-        (, bytes32[] memory writes) = vm.accesses(address(space));
-        assertEq(writes.length, 0);
-        (,,,,,, uint256 sampleTS) = space.getSample(0);
-        assertEq(sampleTS, 0);
-
-        // 4. Try a normal swap through the vault
-        sid.swapIn(true, 1e18);
-
-        // Check that a single storage slot was updated: the oracle 0 index sample
-        (, writes) = vm.accesses(address(space));
-        assertEq(writes.length, 1);
-        (,,,,,, sampleTS) = space.getSample(0);
-        assertEq(sampleTS, TS);
-    }
+    // todo test preview, test only vault
 
     function testPairOracle() public {
         adapter.setScale(1e18);
@@ -949,7 +950,9 @@ contract SpaceTest is Test {
 
         // Create a new space pool with no fees
         spaceFactory.setParams(ts, FixedPoint.ONE, FixedPoint.ONE, true);
-        space = Space(spaceFactory.create(address(adapter), maturity / 2));
+        uint256 NEW_MATURITY = maturity / 2;
+        divider.initSeries(NEW_MATURITY);
+        space = Space(spaceFactory.create(address(adapter), NEW_MATURITY));
 
         User tim = new User(vault, space, pt, target);
         pt.mint(address(tim), INTIAL_USER_BALANCE);
@@ -1096,19 +1099,47 @@ contract SpaceTest is Test {
     function testImpliedRateFromPriceUtil() public {
         adapter.setScale(1e18);
         // Compare to implied rates calculated externally
-        assertClose(space.getImpliedRateFromPrice(0.5e18), 1048575000000000000000000, 1e18);
-        assertClose(space.getImpliedRateFromPrice(0.9e18), 7225263339969966000, 1e18);
-        assertClose(space.getImpliedRateFromPrice(0.98e18), 497885049771156200, 1e18);
+        assertClose(
+            space.getImpliedRateFromPrice(0.5e18),
+            1048575000000000000000000,
+            1e18
+        );
+        assertClose(
+            space.getImpliedRateFromPrice(0.9e18),
+            7225263339969966000,
+            1e18
+        );
+        assertClose(
+            space.getImpliedRateFromPrice(0.98e18),
+            497885049771156200,
+            1e18
+        );
 
         // Warp halfway through the term
         vm.warp(7905600);
-        assertClose(space.getImpliedRateFromPrice(0.9e18), 66654957011853880000, 1e18);
-        assertClose(space.getImpliedRateFromPrice(0.98e18), 1243659622327939600, 1e18);
+        assertClose(
+            space.getImpliedRateFromPrice(0.9e18),
+            66654957011853880000,
+            1e18
+        );
+        assertClose(
+            space.getImpliedRateFromPrice(0.98e18),
+            1243659622327939600,
+            1e18
+        );
 
         // Warp 7/8ths of the way through the term
         vm.warp(13834800);
-        assertClose(space.getImpliedRateFromPrice(0.9e18), 20950696665886087000000000, 1e18);
-        assertClose(space.getImpliedRateFromPrice(0.98e18), 24341241586778587000, 1e18);
+        assertClose(
+            space.getImpliedRateFromPrice(0.9e18),
+            20950696665886087000000000,
+            1e18
+        );
+        assertClose(
+            space.getImpliedRateFromPrice(0.98e18),
+            24341241586778587000,
+            1e18
+        );
 
         vm.warp(maturity);
         assertEq(space.getImpliedRateFromPrice(0.9e18), 0);
@@ -1116,7 +1147,11 @@ contract SpaceTest is Test {
         vm.warp(0);
         // Try a different scale
         adapter.setScale(2e18);
-        assertClose(space.getImpliedRateFromPrice(0.45e18), 7225263339969966000, 1e18);
+        assertClose(
+            space.getImpliedRateFromPrice(0.45e18),
+            7225263339969966000,
+            1e18
+        );
     }
 
     function testPriceFromImpliedRateUtil() public {
@@ -1174,7 +1209,6 @@ contract SpaceTest is Test {
             0.98e18,
             1e14
         );
-
 
         vm.warp(maturity);
         assertEq(space.getPriceFromImpliedRate(0.1e18), 1e18);
@@ -1236,13 +1270,12 @@ contract SpaceTest is Test {
             .add(balances[1 - space.pti()])
             .divDown(space.totalSupply());
 
-        // Since the oracle price and the current spot price are the same, 
+        // Since the oracle price and the current spot price are the same,
         // they fair equilibrium BPT price should be very close the actual spot BPT price
         assertClose(spotBptValueFairPrice1, theoFairBptValue1, 1e14);
 
-
-        // Swapping in within the same block as the last join won't update the oracle 
-        // (max of one price stored per block), 
+        // Swapping in within the same block as the last join won't update the oracle
+        // (max of one price stored per block),
         // but it will update the spot reserves
         sid.swapIn(true, 4e18);
 
@@ -1261,9 +1294,7 @@ contract SpaceTest is Test {
         // So the theoretical BPT equilibrium price has not changed much
         assertClose(theoFairBptValue1, theoFairBptValue2, 2e15);
         // Whereas the spot value fair price is notably different
-        (, balances, ) = vault.getPoolTokens(
-            space.getPoolId()
-        );
+        (, balances, ) = vault.getPoolTokens(space.getPoolId());
         uint256 spotBptValueFairPrice2 = balances[space.pti()]
             .mulDown(fairPTPriceInTarget1)
             .add(balances[1 - space.pti()])
@@ -1306,6 +1337,7 @@ contract SpaceTest is Test {
         address space2 = spaceFactory2.create(address(adapter), maturity);
 
         // 2. Set the new pool on the original Space Factory
+        divider.initSeries(maturity + 1);
         spaceFactory.setPool(address(adapter), maturity + 1, space2);
 
         // Create a user for the new pool
@@ -1334,6 +1366,7 @@ contract SpaceTest is Test {
         MockDividerSpace divider = new MockDividerSpace(targetDecimals);
         MockAdapterSpace adapter = new MockAdapterSpace(targetDecimals);
         adapter.setScale(INIT_SCALE);
+        divider.initSeries(maturity);
 
         SpaceFactory spaceFactory = new SpaceFactory(
             vault,

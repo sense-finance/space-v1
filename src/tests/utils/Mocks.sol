@@ -34,7 +34,7 @@ contract MockAdapterSpace {
     string public name = "Adapter";
 
     constructor(uint8 targetDecimals) public {
-        ERC20Mintable _target = new ERC20Mintable("underlying", "underlying", targetDecimals);
+        ERC20Mintable _target = new ERC20Mintable("Target Token", "TT", targetDecimals);
         target = address(_target);
         start = block.timestamp;
     }
@@ -55,13 +55,26 @@ contract MockAdapterSpace {
 contract MockDividerSpace is DividerLike {
     address public ptAddress;
     address public ytAddress;
+    mapping(uint256 => bool) public maturities;
 
     constructor(uint8 principalYieldDecimals) public {
-        ERC20Mintable _pt = new ERC20Mintable("pt", "pt", principalYieldDecimals);
-        ERC20Mintable _yt = new ERC20Mintable("yt", "yt", principalYieldDecimals);
+        ERC20Mintable _pt = new ERC20Mintable(
+            "4th Oct 2021 cDAI Sense Principal Token, A2",
+            "sP-cDAI:04-10-2021:2",
+            principalYieldDecimals
+        );
+        ERC20Mintable _yt = new ERC20Mintable(
+            "4th Oct 2021 cDAI Sense Yield Token, A2",
+            "sY-cDAI:04-10-2021:2",
+            principalYieldDecimals
+        );
 
         ptAddress = address(_pt);
         ytAddress = address(_yt);
+    }
+
+    function initSeries(uint256 maturity) public {
+        maturities[maturity] = true;
     }
 
     function series(
@@ -95,11 +108,11 @@ contract MockDividerSpace is DividerLike {
         );
     }
 
-    function pt(address, uint256) external override returns (address) {
-        return ptAddress;
+    function pt(address, uint256 maturity) external override returns (address) {
+        return maturities[maturity] ? ptAddress : address(0);
     }
 
-    function yt(address, uint256) external override returns (address) {
-        return ytAddress;
+    function yt(address, uint256 maturity) external override returns (address) {
+        return maturities[maturity] ? ytAddress : address(0);
     }
 }

@@ -65,6 +65,10 @@ contract SpaceFactoryTest is DSTest {
             g2,
             true
         );
+
+        divider.initSeries(maturity1);
+        divider.initSeries(maturity2);
+        divider.initSeries(maturity3);
     }
 
     function testCreatePool() public {
@@ -133,11 +137,16 @@ contract SpaceFactoryTest is DSTest {
         // Check that the pool was set on the registry
         assertEq(spaceFactory.pools(address(adapter), maturity2), pool);
 
-        // Check that another pool can't be deployed on the same maturity
-        try spaceFactory.create(address(adapter), maturity2) {
+        // Check that a pool can't be deployed or set for a Series that hasn't bee initialized
+        try spaceFactory.create(address(adapter), maturity3 + 1) {
             fail();
         } catch Error(string memory error) {
-            assertEq(error, Errors.POOL_ALREADY_EXISTS);
+            assertEq(error, Errors.INVALID_SERIES);
+        }
+        try spaceFactory.setPool(address(adapter), maturity3 + 1, address(0x1337)) {
+            fail();
+        } catch Error(string memory error) {
+            assertEq(error, Errors.INVALID_SERIES);
         }
     }
 
