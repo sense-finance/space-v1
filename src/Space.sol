@@ -135,7 +135,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         uint256 _ts,
         uint256 _g1,
         uint256 _g2,
-        bool _oracleEnabled
+        bool _oracleEnabled,
         bool _balancerFeesEnabled
     ) BalancerPoolToken(
         string(abi.encodePacked("Sense Space ", ERC20(pt).name())),

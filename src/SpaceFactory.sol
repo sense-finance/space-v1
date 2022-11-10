@@ -55,13 +55,17 @@ contract SpaceFactory is Trust {
     /// @notice Oracle flag
     bool public oracleEnabled;
 
+    /// @notice Oracle flag
+    bool public balancerFeesEnabled;
+
     constructor(
         IVault _vault,
         address _divider,
         uint256 _ts,
         uint256 _g1,
         uint256 _g2,
-        bool _oracleEnabled
+        bool _oracleEnabled,
+        bool _balancerFeesEnabled
     ) Trust(msg.sender) {
         vault = _vault;
         divider = DividerLike(_divider);
@@ -69,6 +73,7 @@ contract SpaceFactory is Trust {
         g1 = _g1;
         g2 = _g2;
         oracleEnabled = _oracleEnabled;
+        balancerFeesEnabled = _balancerFeesEnabled;
     }
 
     /// @notice Deploys a new `Space` contract
@@ -85,7 +90,8 @@ contract SpaceFactory is Trust {
             ts,
             g1,
             g2,
-            oracleEnabled
+            oracleEnabled,
+            balancerFeesEnabled
         ));
 
         pools[adapter][maturity] = pool;
@@ -95,7 +101,8 @@ contract SpaceFactory is Trust {
         uint256 _ts,
         uint256 _g1,
         uint256 _g2,
-        bool _oracleEnabled
+        bool _oracleEnabled,
+        bool _balancerFeesEnabled
     ) public requiresTrust {
         // g1 is for swapping Targets to PT and should discount the effective interest
         _require(_g1 <= FixedPoint.ONE, Errors.INVALID_G1);
@@ -106,6 +113,7 @@ contract SpaceFactory is Trust {
         g1 = _g1;
         g2 = _g2;
         oracleEnabled = _oracleEnabled;
+        balancerFeesEnabled = _balancerFeesEnabled;
     }
 
     /// @notice Authd action to set a pool address on the "pools" registry

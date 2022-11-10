@@ -78,6 +78,7 @@ contract SpaceTest is DSTest {
             ts,
             g1,
             g2,
+            true,
             true
         );
 
@@ -122,6 +123,7 @@ contract SpaceTest is DSTest {
             ts,
             g1,
             g2,
+            true,
             true
         );
         uint256 pti = pt < address(target) ? 0 : 1;
@@ -634,6 +636,73 @@ contract SpaceTest is DSTest {
         // time goes by
     }
 
+    function testProtocolFeesTurnedOff() public {
+        IProtocolFeesCollector protocolFeesCollector = vault
+            .getProtocolFeesCollector();
+
+        // Grant protocolFeesCollector.setSwapFeePercentage role
+        bytes32 actionId = Authentication(address(protocolFeesCollector))
+            .getActionId(protocolFeesCollector.setSwapFeePercentage.selector);
+        authorizer.grantRole(actionId, address(this));
+        protocolFeesCollector.setSwapFeePercentage(0.1e18);
+
+        assertEq(space.balanceOf(address(protocolFeesCollector)), 0);
+
+        SpaceFactory spaceFactory = new SpaceFactory(
+            vault,
+            address(divider),
+            ts,
+            g1,
+            g2,
+            true,
+            false // no protocol fees
+        );
+        space = Space(spaceFactory.create(address(adapter), maturity));
+
+        (address _pt, , , , , , , , ) = MockDividerSpace(divider).series(
+            address(adapter),
+            maturity
+        );
+        pt = ERC20Mintable(_pt);
+        target = ERC20Mintable(adapter.target());
+
+        User jim = new User(vault, space, pt, target);
+        target.mint(address(jim), 100e18);
+        pt.mint(address(jim), 100e18);
+
+        User ava = new User(vault, space, pt, target);
+        target.mint(address(ava), 100e18);
+        pt.mint(address(ava), 100e18);
+
+        // Initialize liquidity
+        jim.join(0, 10e18);
+        jim.swapIn(true, 5.5e18);
+        jim.join(10e18, 10e18);
+
+        ava.join(10e18, 10e18);
+
+        uint256 NUM_WASH_TRADES = 6;
+
+        // Fee controller BPT before the swap run
+        uint256 feeControllerBPTPre = space.balanceOf(
+            address(protocolFeesCollector)
+        );
+
+        // Make some swaps
+        for (uint256 i = 0; i < NUM_WASH_TRADES; i++) {
+            ava.swapOut(false);
+            ava.swapIn(true);
+        }
+
+        // No additional BPT shares are minted for the controller until somebody joins or exits
+        ava.exit(space.balanceOf(address(ava)));
+        ava.join(10e18, 10e18);
+        assertEq(
+            space.balanceOf(address(protocolFeesCollector)),
+            feeControllerBPTPre
+        );
+    }
+
     function testTinySwaps() public {
         jim.join(0, 10e18);
         sid.swapIn(true, 5.5e18);
@@ -772,6 +841,7 @@ contract SpaceTest is DSTest {
             ts,
             g1,
             g2,
+            true,
             true
         );
         Space space = Space(spaceFactory.create(address(adapter), maturity));
@@ -873,6 +943,7 @@ contract SpaceTest is DSTest {
             ts,
             g1,
             g2,
+            true,
             true
         );
         Space space = Space(spaceFactory.create(address(adapter), maturity));
@@ -949,7 +1020,7 @@ contract SpaceTest is DSTest {
         vm.roll(0);
 
         // Create a new space pool with no fees
-        spaceFactory.setParams(ts, FixedPoint.ONE, FixedPoint.ONE, true);
+        spaceFactory.setParams(ts, FixedPoint.ONE, FixedPoint.ONE, true, true);
         uint256 NEW_MATURITY = maturity / 2;
         divider.initSeries(NEW_MATURITY);
         space = Space(spaceFactory.create(address(adapter), NEW_MATURITY));
@@ -1332,6 +1403,7 @@ contract SpaceTest is DSTest {
             ts,
             g1,
             g2,
+            true,
             true
         );
         address space2 = spaceFactory2.create(address(adapter), maturity);
@@ -1374,6 +1446,7 @@ contract SpaceTest is DSTest {
             ts,
             g1,
             g2,
+            true,
             true
         );
         space = Space(spaceFactory.create(address(adapter), maturity));
@@ -1385,7 +1458,7 @@ contract SpaceTest is DSTest {
         pt = ERC20Mintable(_pt);
         target = ERC20Mintable(adapter.target());
 
-        User user1 = new User(vault, space, ERC20Mintable(pt), ERC20Mintable(target));
+        User user1 = new User(vault, space, pt, target);
         target.mint(address(user1), mintAmount);
         pt.mint(address(user1), mintAmount);
 
