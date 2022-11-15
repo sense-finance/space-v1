@@ -3,7 +3,7 @@ pragma solidity ^0.7.0;
 pragma experimental ABIEncoderV2;
 
 import { FixedPoint } from "@balancer-labs/v2-solidity-utils/contracts/math/FixedPoint.sol";
-import { BasePoolFactory } from "@balancer-labs/v2-pool-utils/contracts/factories/BasePoolFactory.sol";
+import { BasePoolSplitCodeFactory } from "@balancer-labs/v2-pool-utils/contracts/factories/BasePoolSplitCodeFactory.sol";
 import { IVault } from "@balancer-labs/v2-vault/contracts/interfaces/IVault.sol";
 import { Trust } from "@sense-finance/v1-utils/src/Trust.sol";
 
@@ -33,11 +33,8 @@ interface DividerLike {
     function yt(address adapter, uint256 maturity) external returns (address);
 }
 
-contract SpaceFactory is Trust {
+contract SpaceFactory is BasePoolSplitCodeFactory, Trust {
     /* ========== PUBLIC IMMUTABLES ========== */
-
-    /// @notice Balancer Vault
-    IVault public immutable vault;
 
     /// @notice Sense Divider
     DividerLike public immutable divider;
@@ -47,13 +44,13 @@ contract SpaceFactory is Trust {
     /// @notice Pool registry (adapter -> maturity -> pool address)
     mapping(address => mapping(uint256 => address)) public pools;
 
-    /// @notice Yieldspace config
-    uint256 public ts;
-    uint256 public g1;
-    uint256 public g2;
+    /// @dev Yieldspace config
+    uint256 internal ts;
+    uint256 internal g1;
+    uint256 internal g2;
 
-    /// @notice Oracle flag
-    bool public oracleEnabled;
+    /// @dev Oracle flag
+    bool internal oracleEnabled;
 
     constructor(
         IVault _vault,
@@ -62,8 +59,7 @@ contract SpaceFactory is Trust {
         uint256 _g1,
         uint256 _g2,
         bool _oracleEnabled
-    ) Trust(msg.sender) {
-        vault = _vault;
+    )  BasePoolSplitCodeFactory(_vault, type(Space).creationCode) Trust(msg.sender) {
         divider = DividerLike(_divider);
         ts = _ts;
         g1 = _g1;
@@ -77,16 +73,18 @@ contract SpaceFactory is Trust {
         _require(pt != address(0), Errors.INVALID_SERIES);
         _require(pools[adapter][maturity] == address(0), Errors.POOL_ALREADY_EXISTS);
 
-        pool = address(new Space(
-            vault,
-            adapter,
-            maturity,
-            pt,
-            ts,
-            g1,
-            g2,
-            oracleEnabled
-        ));
+        pool = _create(
+            abi.encode(
+                getVault(),
+                adapter,
+                maturity,
+                pt,
+                ts,
+                g1,
+                g2,
+                oracleEnabled
+            )
+        );
 
         pools[adapter][maturity] = pool;
     }
