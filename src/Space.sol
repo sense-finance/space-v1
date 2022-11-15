@@ -125,6 +125,8 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     /// @dev Oracle sample collection metadata
     OracleData internal oracleData;
 
+    bool internal balancerFeesEnabled;
+
     constructor(
         IVault vault,
         address _adapter,
@@ -133,7 +135,8 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         uint256 _ts,
         uint256 _g1,
         uint256 _g2,
-        bool _oracleEnabled
+        bool _oracleEnabled,
+        bool _balancerFeesEnabled
     ) BalancerPoolToken(
         string(abi.encodePacked("Sense Space ", ERC20(pt).name())),
         string(abi.encodePacked("SPACE-", ERC20(pt).symbol()))
@@ -169,6 +172,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         adapter = _adapter;
         maturity = _maturity;
         oracleData.oracleEnabled = _oracleEnabled;
+        balancerFeesEnabled = _balancerFeesEnabled;
     }
 
     /* ========== BALANCER VAULT HOOKS ========== */
@@ -234,7 +238,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             _updateOracle(lastChangeBlock, reserves[pti], reserves[1 - pti]);
 
             // Calculate fees due before updating bpt balances to determine invariant growth from just swap fees
-            if (protocolSwapFeePercentage != 0) {
+            if (balancerFeesEnabled && protocolSwapFeePercentage != 0) {
                 // This doesn't break the YS virtual reserves efficiency trick because, even though we're minting new BPT, 
                 // the BPT is still getting denser faster than it's getting diluted, 
                 // meaning that it'll never fall below invariant #23 in the YS paper
@@ -286,7 +290,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         _updateOracle(lastChangeBlock, reserves[pti], reserves[1 - pti]);
 
         // Calculate fees due before updating bpt balances to determine invariant growth from just swap fees
-        if (protocolSwapFeePercentage != 0) {
+        if (balancerFeesEnabled && protocolSwapFeePercentage != 0) {
             _mintPoolTokens(_protocolFeesCollector, _bptFeeDue(reserves, protocolSwapFeePercentage));
         }
 
@@ -784,6 +788,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
     }
 
     function adjustedTotalSupply() external returns (uint256) {
+        if (!balancerFeesEnabled) return totalSupply();
         uint256 protocolSwapFeePercentage = _vault.getProtocolFeesCollector().getSwapFeePercentage();
         (, uint256[] memory balances, ) = _vault.getPoolTokens(_poolId);
         return totalSupply() + _bptFeeDue(balances, protocolSwapFeePercentage);
