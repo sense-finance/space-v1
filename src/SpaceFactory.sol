@@ -44,13 +44,13 @@ contract SpaceFactory is BasePoolSplitCodeFactory, Trust {
     /// @notice Pool registry (adapter -> maturity -> pool address)
     mapping(address => mapping(uint256 => address)) public pools;
 
-    /// @dev Yieldspace config
-    uint256 internal ts;
-    uint256 internal g1;
-    uint256 internal g2;
+    /// @notice Yieldspace config
+    uint256 public ts;
+    uint256 public g1;
+    uint256 public g2;
 
-    /// @dev Oracle flag
-    bool internal oracleEnabled;
+    /// @notice Oracle flag
+    bool public oracleEnabled;
 
     constructor(
         IVault _vault,
