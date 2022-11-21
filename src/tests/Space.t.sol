@@ -38,6 +38,8 @@ contract SpaceTest is DSTest {
     MockDividerSpace internal divider;
     MockAdapterSpace internal adapter;
     uint256 internal maturity;
+    uint256 internal _scalingFactorPT;
+    uint256 internal _scalingFactorTarget;
     ERC20Mintable internal pt;
     ERC20Mintable internal target;
     Authorizer internal authorizer;
@@ -90,6 +92,9 @@ contract SpaceTest is DSTest {
         );
         pt = ERC20Mintable(_pt);
         target = ERC20Mintable(adapter.target());
+
+        _scalingFactorPT = 10**(uint256(18) - pt.decimals());
+        _scalingFactorTarget = 10**(uint256(18)- target.decimals());
 
         // Mint this address PT and Target tokens
         // Max approve the balancer vault to move this addresses tokens
@@ -270,21 +275,23 @@ contract SpaceTest is DSTest {
         // Complete exit leaving only min bpt in pool
         jim.exit(space.balanceOf(address(jim)));
         uint256 preSupply = space.totalSupply();
-        assertEq(preSupply, space.MINIMUM_BPT());
+        assertEq(preSupply / _scalingFactorTarget, space.MINIMUM_BPT());
         // Check Target reserves
         (, uint256[] memory balances, ) = vault.getPoolTokens(
             space.getPoolId()
         );
-        assertEq(
+
+        assertClose(
             balances[1 - space.pti()],
-            space.MINIMUM_BPT().divDown(INIT_SCALE)
+            space.MINIMUM_BPT().divUp(INIT_SCALE),
+            1
         );
         vm.roll(2);
 
         // Pre-swap join uses target in times init_scale to determine the bpt given out
         uint256 TARGET_IN = 50e18;
         sid.join(0, TARGET_IN);
-        uint256 joinedTargetInUnderlying = TARGET_IN.mulDown(INIT_SCALE);
+        uint256 joinedTargetInUnderlying = TARGET_IN.mulDown(INIT_SCALE) * _scalingFactorTarget;
         uint256 postSupply = space.totalSupply();
 
         assertEq(postSupply, preSupply + joinedTargetInUnderlying);
@@ -844,8 +851,6 @@ contract SpaceTest is DSTest {
             true,
             true
         );
-        Space space = Space(spaceFactory.create(address(adapter), maturity));
-        
 
         uint8 DECIMALS = 8;
         uint256 BASE_UNIT = 10 ** DECIMALS;
@@ -869,26 +874,13 @@ contract SpaceTest is DSTest {
             _space.getPoolId()
         );
 
-        // Reserves get stripped down to 1:1 due to downscaling
-        assertEq(balances[0], 1);
-        assertEq(balances[1], 1);
-
-        uint256 lpSupplyPreJoin = _space.totalSupply();
-        max.join(BASE_UNIT * 5, BASE_UNIT * 5);
-
-        (, balances, ) = vault.getPoolTokens(
-            _space.getPoolId()
-        );
-        // Reserves are now exactly equal, regardless of what the ratio was at previously
-        assertEq(balances[0], BASE_UNIT * 5 + 1);
-        assertEq(balances[1], BASE_UNIT * 5 + 1);
-
-        // BPT is just a scaled version of the reserves on both sides, disconnected from the YS invariant
-        assertEq(_space.totalSupply(), (BASE_UNIT * 5 + 1) * lpSupplyPreJoin);
+        // Reserves do not get stripped down to 1:1 due to downscaling
+        assertTrue(balances[0] > 1);
+        assertTrue(balances[1] > 1);
     }
 
     // companion test to testSmallDecimalsGuardInvalidState, the primary difference is that Sia does not join any liquidity
-    function testFailSmallDecimalsGuardInvalidState(
+    function testSmallDecimalsGuardInvalidState1(
         uint64 joinAmt,
         uint64 swapInAmt1,
         uint64 swapInAmt2
@@ -923,8 +915,8 @@ contract SpaceTest is DSTest {
         eve.swapIn(true, swapInAmt2);
     }
 
-    // companion test to testFailSmallDecimalNoLockedLiquidity, the primary difference is that Sia keeps a tiny amount of liquidity locked
-    function testSmallDecimalsGuardInvalidState(
+    // companion test to testSmallDecimalsGuardInvalidState1, the primary difference is that Sia keeps a tiny amount of liquidity locked
+    function testSmallDecimalsGuardInvalidState2(
         uint64 joinAmt,
         uint64 swapInAmt1,
         uint64 swapInAmt2
@@ -1393,6 +1385,22 @@ contract SpaceTest is DSTest {
         // Check that both token reserves have been set to 1 * scale, normed to 18 decimals
         assertEq(lastToken0Reserve, 1e18 * INIT_SCALE / 1e18);
         assertEq(lastToken1Reserve, 1e18 * INIT_SCALE / 1e18);
+    }
+
+    function testAdjustedTotalSupply() public {
+        IProtocolFeesCollector protocolFeesCollector = vault
+            .getProtocolFeesCollector();
+
+        // Grant protocolFeesCollector.setSwapFeePercentage role
+        bytes32 actionId = Authentication(address(protocolFeesCollector))
+            .getActionId(protocolFeesCollector.setSwapFeePercentage.selector);
+        authorizer.grantRole(actionId, address(this));
+        protocolFeesCollector.setSwapFeePercentage(0.1e18);
+
+        jim.join(0, 10e18);
+        sid.swapIn(true, 2e18);
+
+        assertGt(space.adjustedTotalSupply(), space.totalSupply());
     }
 
     function testFactorySetPoolSwap() public {

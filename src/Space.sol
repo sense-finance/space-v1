@@ -204,12 +204,14 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
             // note We assume scale values will always be 18 decimals
             uint256 underlyingIn = reqAmountsIn[1 - pti].mulDown(initScale);
 
+            uint256 minBpt = _upscale(_scalingFactorTarget > 1e9 ? 1e4 : MINIMUM_BPT, _scalingFactorTarget);
+
             // Just like weighted pool 2 token from the balancer v2 monorepo,
             // we lock MINIMUM_BPT in by minting it for the PT address. This reduces potential
             // issues with rounding and ensures that this code path will only be executed once
-            _mintPoolTokens(address(0), MINIMUM_BPT);
+            _mintPoolTokens(address(0), minBpt);
 
-            uint256 bptToMint = underlyingIn.sub(MINIMUM_BPT);
+            uint256 bptToMint = underlyingIn.sub(minBpt);
 
             // Mint the recipient BPT comensurate with the value of their join in Underlying
             _mintPoolTokens(recipient, bptToMint);
@@ -791,6 +793,7 @@ contract Space is IMinimalSwapInfoPool, BalancerPoolToken, PoolPriceOracle {
         if (!balancerFeesEnabled) return totalSupply();
         uint256 protocolSwapFeePercentage = _vault.getProtocolFeesCollector().getSwapFeePercentage();
         (, uint256[] memory balances, ) = _vault.getPoolTokens(_poolId);
+        _upscaleArray(balances);
         return totalSupply() + _bptFeeDue(balances, protocolSwapFeePercentage);
     }
 
